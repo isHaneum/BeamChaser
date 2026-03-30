@@ -245,9 +245,13 @@ final class LocationService: NSObject, ObservableObject {
     // MARK: - CMPedometer (보수계)
 
     private func startPedometer() {
-        guard CMPedometer.isDistanceAvailable(),
-              CMPedometer.authorizationStatus() != .denied else { return }
+        guard CMPedometer.isDistanceAvailable() else { return }
 
+        let status = CMPedometer.authorizationStatus()
+        guard status == .authorized || status == .notDetermined else { return }
+
+        // .notDetermined일 때 startUpdates가 권한 요청을 트리거함
+        // 하지만 TCC 위반 방지를 위해 안전하게 래핑
         pedometer.startUpdates(from: Date()) { [weak self] data, error in
             guard let data = data, error == nil else { return }
 

@@ -110,7 +110,7 @@ final class RunSessionManager: ObservableObject {
             #if targetEnvironment(simulator)
             let minDistance: Double = 10  // 시뮬레이터에서는 10m
             #else
-            let minDistance: Double = 100
+            let minDistance: Double = 10
             #endif
             if totalDistance >= minDistance {
                 savedRecords.insert(record, at: 0)

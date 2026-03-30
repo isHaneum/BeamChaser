@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
@@ -102,8 +103,19 @@ struct FirestoreComment: Codable, Identifiable {
 @MainActor
 final class BackendService: ObservableObject {
 
-    private lazy var db = Firestore.firestore()
-    private lazy var storage = Storage.storage()
+    private var _db: Firestore?
+    private var _storage: Storage?
+
+    private var db: Firestore? {
+        guard FirebaseApp.app() != nil else { return nil }
+        if _db == nil { _db = Firestore.firestore() }
+        return _db
+    }
+    private var storage: Storage? {
+        guard FirebaseApp.app() != nil else { return nil }
+        if _storage == nil { _storage = Storage.storage() }
+        return _storage
+    }
 
     @Published var currentUser: FirestoreUser?
     @Published var isLoading = false
@@ -113,14 +125,18 @@ final class BackendService: ObservableObject {
 
     // MARK: - Collections
 
-    private var usersCollection: CollectionReference { db.collection("users") }
-    private var runsCollection: CollectionReference { db.collection("runs") }
-    private var matePostsCollection: CollectionReference { db.collection("matePosts") }
-    private var feedPostsCollection: CollectionReference { db.collection("feedPosts") }
+    private var usersCollection: CollectionReference? { db?.collection("users") }
+    private var runsCollection: CollectionReference? { db?.collection("runs") }
+    private var matePostsCollection: CollectionReference? { db?.collection("matePosts") }
+    private var feedPostsCollection: CollectionReference? { db?.collection("feedPosts") }
 
     // MARK: - Auth
 
     func signInWithFirebase(idToken: String, nonce: String) async throws {
+        guard FirebaseApp.app() != nil else {
+            self.error = "Firebase가 설정되지 않았습니다."
+            return
+        }
         let credential = OAuthProvider.appleCredential(
             withIDToken: idToken,
             rawNonce: nonce,
@@ -131,22 +147,26 @@ final class BackendService: ObservableObject {
     }
 
     func signOut() throws {
+        guard FirebaseApp.app() != nil else { return }
         try Auth.auth().signOut()
         currentUser = nil
         removeAllListeners()
     }
 
     var isSignedIn: Bool {
-        Auth.auth().currentUser != nil
+        guard FirebaseApp.app() != nil else { return false }
+        return Auth.auth().currentUser != nil
     }
 
     var userId: String? {
-        Auth.auth().currentUser?.uid
+        guard FirebaseApp.app() != nil else { return nil }
+        return Auth.auth().currentUser?.uid
     }
 
     // MARK: - User Profile
 
     func loadOrCreateUser(authUser: User, displayName: String) async {
+        guard let usersCollection = usersCollection else { return }
         do {
             let doc = try await usersCollection.document(authUser.uid).getDocument()
             if doc.exists {
@@ -162,7 +182,7 @@ final class BackendService: ObservableObject {
     }
 
     func updateUserProfile(_ updates: [String: Any]) async {
-        guard let uid = userId else { return }
+        guard let uid = userId, let usersCollection = usersCollection else { return }
         var merged = updates
         merged["updatedAt"] = FieldValue.serverTimestamp()
         do {
@@ -175,6 +195,7 @@ final class BackendService: ObservableObject {
     // MARK: - Run Records
 
     func saveRunRecord(_ record: FirestoreRunRecord) async throws {
+        guard let runsCollection = runsCollection, let usersCollection = usersCollection else { return }
         try runsCollection.document(record.id).setData(from: record)
 
         // 누적 통계 업데이트
@@ -188,7 +209,7 @@ final class BackendService: ObservableObject {
     }
 
     func fetchRunHistory(limit: Int = 50) async throws -> [FirestoreRunRecord] {
-        guard let uid = userId else { return [] }
+        guard let uid = userId, let runsCollection = runsCollection else { return [] }
         let snapshot = try await runsCollection
             .whereField("userId", isEqualTo: uid)
             .order(by: "startDate", descending: true)
@@ -200,10 +221,12 @@ final class BackendService: ObservableObject {
     // MARK: - Mate Posts
 
     func createMatePost(_ post: FirestoreMatePost) async throws {
+        guard let matePostsCollection = matePostsCollection else { return }
         try matePostsCollection.document(post.id).setData(from: post)
     }
 
     func fetchMatePosts(limit: Int = 30) async throws -> [FirestoreMatePost] {
+        guard let matePostsCollection = matePostsCollection else { return [] }
         let snapshot = try await matePostsCollection
             .order(by: "createdAt", descending: true)
             .limit(to: limit)
@@ -212,7 +235,7 @@ final class BackendService: ObservableObject {
     }
 
     func toggleJoinMatePost(postId: String) async throws {
-        guard let uid = userId else { return }
+        guard let uid = userId, let matePostsCollection = matePostsCollection else { return }
         let ref = matePostsCollection.document(postId)
         let doc = try await ref.getDocument()
         guard let post = try? doc.data(as: FirestoreMatePost.self) else { return }
@@ -233,10 +256,12 @@ final class BackendService: ObservableObject {
     // MARK: - Feed Posts
 
     func createFeedPost(_ post: FirestoreFeedPost) async throws {
+        guard let feedPostsCollection = feedPostsCollection else { return }
         try feedPostsCollection.document(post.id).setData(from: post)
     }
 
     func fetchFeedPosts(limit: Int = 30) async throws -> [FirestoreFeedPost] {
+        guard let feedPostsCollection = feedPostsCollection else { return [] }
         let snapshot = try await feedPostsCollection
             .order(by: "createdAt", descending: true)
             .limit(to: limit)
@@ -245,7 +270,7 @@ final class BackendService: ObservableObject {
     }
 
     func toggleLikeFeedPost(postId: String) async throws {
-        guard let uid = userId else { return }
+        guard let uid = userId, let feedPostsCollection = feedPostsCollection else { return }
         let ref = feedPostsCollection.document(postId)
         let doc = try await ref.getDocument()
         guard let post = try? doc.data(as: FirestoreFeedPost.self) else { return }
@@ -262,6 +287,7 @@ final class BackendService: ObservableObject {
     }
 
     func addCommentToFeedPost(postId: String, comment: FirestoreComment) async throws {
+        guard let feedPostsCollection = feedPostsCollection, let db = db else { return }
         let ref = feedPostsCollection.document(postId)
         let commentData = try Firestore.Encoder().encode(comment)
         try await ref.updateData([
@@ -272,6 +298,7 @@ final class BackendService: ObservableObject {
     // MARK: - Photo Upload
 
     func uploadPhoto(data: Data, path: String) async throws -> String {
+        guard let storage = storage else { throw NSError(domain: "BackendService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase not configured"]) }
         let ref = storage.reference().child(path)
         let metadata = StorageMetadata()
         metadata.contentType = "image/jpeg"
@@ -283,6 +310,7 @@ final class BackendService: ObservableObject {
     // MARK: - Real-time Listeners
 
     func listenToMatePosts(onChange: @escaping ([FirestoreMatePost]) -> Void) {
+        guard let matePostsCollection = matePostsCollection else { return }
         let listener = matePostsCollection
             .order(by: "createdAt", descending: true)
             .limit(to: 30)
@@ -295,6 +323,7 @@ final class BackendService: ObservableObject {
     }
 
     func listenToFeedPosts(onChange: @escaping ([FirestoreFeedPost]) -> Void) {
+        guard let feedPostsCollection = feedPostsCollection else { return }
         let listener = feedPostsCollection
             .order(by: "createdAt", descending: true)
             .limit(to: 30)

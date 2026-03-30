@@ -62,8 +62,10 @@ final class HealthKitService: ObservableObject {
             authorizationError = nil
             await fetchHeight()
         } catch {
-            authorizationError = "건강 앱 권한 요청 실패: \(error.localizedDescription)"
+            // HealthKit entitlement 없으면 여기서 실패 — 크래시 대신 비활성화
+            authorizationError = nil
             isAuthorized = false
+            print("HealthKit 권한 요청 불가 (entitlement 미설정): \(error.localizedDescription)")
         }
     }
 
@@ -97,11 +99,7 @@ final class HealthKitService: ObservableObject {
     // MARK: - 운동 세션 시작
 
     func startWorkout() async {
-        guard Self.isAvailable else { return }
-        if !isAuthorized {
-            await requestAuthorization()
-            guard isAuthorized else { return }
-        }
+        guard Self.isAvailable, isAuthorized else { return }
 
         let config = HKWorkoutConfiguration()
         config.activityType = .running
@@ -136,7 +134,7 @@ final class HealthKitService: ObservableObject {
         guard !filtered.isEmpty else { return }
 
         hasRouteData = true
-        routeBuilder.insertRouteData(filtered) { success, error in
+        routeBuilder.insertRouteData(filtered) { _, error in
             if let error = error {
                 print("경로 데이터 추가 실패: \(error)")
             }

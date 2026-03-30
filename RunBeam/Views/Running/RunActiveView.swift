@@ -12,6 +12,8 @@ struct RunActiveView: View {
     @State private var isExpanded = false  // 메트릭 패널 확장
     @State private var showGoalReachedAlert = false
     @State private var pauseBlinkOpacity: Double = 1.0
+    @State private var didFinish = false
+    @State private var finishedRecord: RunRecord?
 
     var body: some View {
         ZStack {
@@ -21,9 +23,18 @@ struct RunActiveView: View {
                 .ignoresSafeArea()
 
             // 상단 오버레이 — 페이스 상태 + 레이저 갭
-            VStack(spacing: 0) {
-                topBar
-                Spacer()
+            if !didFinish {
+                VStack(spacing: 0) {
+                    topBar
+                    Spacer()
+                }
+            }
+
+            // 종료 시 딤 오버레이
+            if didFinish {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
             }
 
             // 하단 오버레이 — 메트릭 + 컨트롤
@@ -66,27 +77,23 @@ struct RunActiveView: View {
             }
         }
         .onDisappear {
-            // finishRun에서 이미 처리했으면 중복 호출 방지
-            if runSession.runState == .running || runSession.runState == .paused {
+            if !didFinish {
+                // 비정상 종료 — 전체 정리
                 locationService.simulatorStop()
                 locationService.stopTracking()
                 bleService.turnLaserOff()
                 locationService.reset()
-                // 비정상 종료 시 HealthKit workout 정리
                 Task { await runSession.healthKit.discardWorkout() }
-                runSession.resetSession()
-            } else if runSession.runState == .finished {
-                // 정상 종료 후 세션 정리
-                runSession.resetSession()
             }
+            // 항상 세션 초기화 (다음 러닝을 위해)
+            runSession.resetSession()
         }
         .onChange(of: locationService.totalDistanceMeters) { _, newValue in
-            guard runSession.runState == .running else { return }
+            guard runSession.runState == .running, !didFinish else { return }
             runSession.updatePace(distance: newValue)
         }
         .onChange(of: locationService.routePoints.count) { _, _ in
-            // 러닝 중일 때만 경로 데이터 추가
-            guard runSession.runState == .running else { return }
+            guard runSession.runState == .running, !didFinish else { return }
             // 새 위치 데이터를 HealthKit 경로에 추가
             if let location = locationService.currentLocation {
                 runSession.healthKit.addRouteData([location])
@@ -312,23 +319,25 @@ struct RunActiveView: View {
 
     private var bottomOverlay: some View {
         VStack(spacing: 0) {
-            // 탭하여 확장/축소
-            Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    isExpanded.toggle()
+            if !didFinish {
+                // 탭하여 확장/축소
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    Capsule()
+                        .fill(Color.white.opacity(0.3))
+                        .frame(width: 36, height: 4)
+                        .padding(.top, 10)
+                        .padding(.bottom, 6)
                 }
-            } label: {
-                Capsule()
-                    .fill(Color.white.opacity(0.3))
-                    .frame(width: 36, height: 4)
-                    .padding(.top, 10)
-                    .padding(.bottom, 6)
-            }
 
-            if isExpanded {
-                expandedMetrics
-            } else {
-                compactMetrics
+                if isExpanded {
+                    expandedMetrics
+                } else {
+                    compactMetrics
+                }
             }
 
             // 컨트롤 버튼
@@ -518,7 +527,9 @@ struct RunActiveView: View {
 
     private var controlButtons: some View {
         Group {
-            if runSession.runState == .paused {
+            if didFinish {
+                finishedControlButtons
+            } else if runSession.runState == .paused {
                 pausedControlButtons
             } else {
                 runningControlButtons
@@ -622,27 +633,92 @@ struct RunActiveView: View {
         }
     }
 
+    // 러닝 완료 — 요약 + 완료 버튼
+
+    private var finishedControlButtons: some View {
+        VStack(spacing: 16) {
+            if let record = finishedRecord {
+                VStack(spacing: 12) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(RBColor.success)
+                        Text("러닝 완료")
+                            .font(RBFont.label(18))
+                            .foregroundStyle(.white)
+                    }
+
+                    HStack(spacing: 24) {
+                        VStack(spacing: 4) {
+                            Text(record.formattedDistance)
+                                .font(RBFont.metric(22))
+                                .foregroundStyle(.white)
+                            Text("거리")
+                                .font(RBFont.caption(10))
+                                .foregroundStyle(RBColor.textSecondary)
+                        }
+                        VStack(spacing: 4) {
+                            Text(record.formattedDuration)
+                                .font(RBFont.metric(22))
+                                .foregroundStyle(.white)
+                            Text("시간")
+                                .font(RBFont.caption(10))
+                                .foregroundStyle(RBColor.textSecondary)
+                        }
+                        VStack(spacing: 4) {
+                            Text(record.formattedPace)
+                                .font(RBFont.metric(22))
+                                .foregroundStyle(.white)
+                            Text("페이스")
+                                .font(RBFont.caption(10))
+                                .foregroundStyle(RBColor.textSecondary)
+                        }
+                    }
+                }
+            }
+
+            Button {
+                dismiss()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 18, weight: .bold))
+                    Text("완료")
+                        .font(RBFont.label(17))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(RBColor.accentGradient)
+                .clipShape(Capsule())
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private func finishRun() {
+        guard !didFinish else { return }
+        didFinish = true
         // 1. 시뮬레이터 이동 중지
         locationService.simulatorStop()
         // 2. 기록 캡처 (reset 전에 값 복사)
         let routePoints = locationService.routePoints
         let totalDistance = locationService.totalDistanceMeters
-        // 3. 기록 저장 + HealthKit 운동 종료 (먼저 runState를 .finished로 전환하여 onChange 재진입 방지)
+        // 3. 기록 저장 + HealthKit 운동 종료
         runSession.finishRun(
             routePoints: routePoints,
             totalDistance: totalDistance
         )
-        // 4. 위치 추적 중지 (runState가 .finished 된 후에 — onChange 핸들러가 무시하도록)
+        // 4. 완료 기록 캡처 (UI 표시용)
+        finishedRecord = runSession.currentRecord
+        // 5. 위치 추적 중지
         locationService.stopTracking()
-        // 5. BLE 레이저 끄기
+        // 6. BLE 레이저 끄기
         bleService.turnLaserOff()
-        // 6. 위치 데이터 초기화
+        // 7. 위치 데이터 초기화
         locationService.reset()
-        // 7. 화면 닫기
-        dismiss()
+        // dismiss는 사용자가 "완료" 버튼을 누를 때 실행
     }
 
 

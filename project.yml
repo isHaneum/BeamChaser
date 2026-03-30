@@ -9,7 +9,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "VS723SVX24"
 
 packages:
   FirebaseSDK:
@@ -44,6 +44,7 @@ targets:
         NSPhotoLibraryUsageDescription: "피드에 사진을 첨부하기 위해 사진 접근이 필요합니다."
         NSHealthShareUsageDescription: "러닝 기록을 Apple 건강 앱에서 확인하기 위해 건강 데이터 읽기 권한이 필요합니다."
         NSHealthUpdateUsageDescription: "러닝 운동 기록을 Apple 건강 앱에 저장하기 위해 건강 데이터 쓰기 권한이 필요합니다."
+        NSMotionUsageDescription: "보수계를 활용하여 더 정확한 거리와 페이스를 측정하기 위해 모션 데이터가 필요합니다."
         UIBackgroundModes:
           - bluetooth-central
           - location
@@ -59,6 +60,4 @@ targets:
         com.apple.BackgroundModes.bluetooth-central:
           enabled: true
         com.apple.BackgroundModes.location:
-          enabled: true
-        com.apple.HealthKit:
           enabled: true
