@@ -1,0 +1,64 @@
+name: RunBeam
+options:
+  bundleIdPrefix: com.goldmine
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5"
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  FirebaseSDK:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    version: 11.6.0
+
+targets:
+  RunBeam:
+    type: application
+    platform: iOS
+    sources:
+      - RunBeam
+    dependencies:
+      - package: FirebaseSDK
+        product: FirebaseCore
+      - package: FirebaseSDK
+        product: FirebaseAuth
+      - package: FirebaseSDK
+        product: FirebaseFirestore
+      - package: FirebaseSDK
+        product: FirebaseStorage
+    info:
+      path: RunBeam/Resources/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSLocationWhenInUseUsageDescription: "러닝 경로를 추적하고 지도에 표시하기 위해 위치 정보가 필요합니다."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "백그라운드에서도 러닝 경로를 추적하기 위해 위치 정보가 필요합니다."
+        NSBluetoothAlwaysUsageDescription: "런빔 레이저 장치와 연결하기 위해 블루투스가 필요합니다."
+        NSPhotoLibraryUsageDescription: "피드에 사진을 첨부하기 위해 사진 접근이 필요합니다."
+        NSHealthShareUsageDescription: "러닝 기록을 Apple 건강 앱에서 확인하기 위해 건강 데이터 읽기 권한이 필요합니다."
+        NSHealthUpdateUsageDescription: "러닝 운동 기록을 Apple 건강 앱에 저장하기 위해 건강 데이터 쓰기 권한이 필요합니다."
+        UIBackgroundModes:
+          - bluetooth-central
+          - location
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.runbeam
+    entitlements:
+      path: RunBeam/Resources/RunBeam.entitlements
+    attributes:
+      SystemCapabilities:
+        com.apple.BackgroundModes:
+          enabled: true
+        com.apple.BackgroundModes.bluetooth-central:
+          enabled: true
+        com.apple.BackgroundModes.location:
+          enabled: true
+        com.apple.HealthKit:
+          enabled: true
