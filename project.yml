@@ -21,7 +21,10 @@ targets:
     type: application
     platform: iOS
     sources:
-      - RunBeam
+      - path: RunBeam
+        excludes:
+          - "**/*.c"
+          - "**/*.ino"
     dependencies:
       - package: FirebaseSDK
         product: FirebaseCore

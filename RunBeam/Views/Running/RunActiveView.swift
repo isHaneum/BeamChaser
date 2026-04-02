@@ -71,9 +71,12 @@ struct RunActiveView: View {
             #else
             locationService.startTracking()
             #endif
-            bleService.turnLaserOn()
-            if let target = runSession.paceMaker.target {
-                bleService.sendTargetPace(secondsPerKm: Int(target.totalSecondsPerKm))
+            // BLE: 러닝 시작 명령 + 목표 페이스 전송
+            if bleService.isConnected {
+                if let target = runSession.paceMaker.target {
+                    bleService.sendTargetPace(secondsPerKm: Int(target.totalSecondsPerKm))
+                }
+                bleService.startRun()
             }
         }
         .onDisappear {
@@ -81,7 +84,9 @@ struct RunActiveView: View {
                 // 비정상 종료 — 전체 정리
                 locationService.simulatorStop()
                 locationService.stopTracking()
-                bleService.turnLaserOff()
+                if bleService.isConnected {
+                    bleService.stopRun()
+                }
                 locationService.reset()
                 Task { await runSession.healthKit.discardWorkout() }
             }
@@ -714,8 +719,10 @@ struct RunActiveView: View {
         finishedRecord = runSession.currentRecord
         // 5. 위치 추적 중지
         locationService.stopTracking()
-        // 6. BLE 레이저 끄기
-        bleService.turnLaserOff()
+        // 6. BLE 러닝 종료 (레이저 끄기 + WAIT 복귀)
+        if bleService.isConnected {
+            bleService.stopRun()
+        }
         // 7. 위치 데이터 초기화
         locationService.reset()
         // dismiss는 사용자가 "완료" 버튼을 누를 때 실행

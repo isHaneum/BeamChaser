@@ -281,7 +281,7 @@
 				TargetAttributes = {
 					073263A651C700D3F754122E = {
 						DevelopmentTeam = VS723SVX24;
-						SystemCapabilities = "[\"com.apple.BackgroundModes.bluetooth-central\": [\"enabled\": true], \"com.apple.BackgroundModes\": [\"enabled\": true], \"com.apple.BackgroundModes.location\": [\"enabled\": true]]";
+						SystemCapabilities = "[\"com.apple.BackgroundModes.location\": [\"enabled\": true], \"com.apple.BackgroundModes\": [\"enabled\": true], \"com.apple.BackgroundModes.bluetooth-central\": [\"enabled\": true]]";
 					};
 				};
 			};

@@ -216,10 +216,7 @@ struct SettingsView: View {
                                 Divider().padding(.leading, 58).overlay(RBColor.divider)
                                 Button {
                                     let cal = currentCalibration
-                                    bleService.sendCalibration(
-                                        angleDegrees: cal.laserAngleOffset,
-                                        projectionDistance: cal.estimatedProjectionDistance
-                                    )
+                                    bleService.setServoAngle(Int(cal.laserAngleOffset + 85)) // 보정값을 중앙(85도) 기준으로 적용
                                 } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: "arrow.triangle.2.circlepath")
