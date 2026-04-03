@@ -27,9 +27,9 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>WKApplication</key>
+	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>com.goldmine.runbeam</string>
-	<key>WKWatchOnly</key>
-	<true/>
 </dict>
 </plist>

@@ -81,7 +81,7 @@ targets:
     info:
       path: RunBeamWatch/Resources/Info.plist
       properties:
-        WKWatchOnly: true
+        WKApplication: true
         WKCompanionAppBundleIdentifier: com.goldmine.runbeam
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortraitUpsideDown
