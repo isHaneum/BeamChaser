@@ -12,10 +12,18 @@ struct RunBeamWatchApp: App {
     }
 }
 
-/// 항상 메인 탭으로 진입 (iPhone 연결/러닝 상태 무관)
+/// 러닝 상태에 따라 진입점 분기
+/// - idle/finished: QuickStartView (애프 실행 즉시 화면)
+/// - running/paused: RunningTabView (러닝 중 3탭)
 struct RootView: View {
+    @EnvironmentObject var session: WatchSessionManager
+
     var body: some View {
-        RunningTabView()
+        if session.isRunning || session.isPaused {
+            RunningTabView()
+        } else {
+            QuickStartView()
+        }
     }
 }
 

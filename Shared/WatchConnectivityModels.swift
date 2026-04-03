@@ -28,6 +28,7 @@ enum WCCommand: String {
     case pauseRun        // 러닝 일시정지
     case resumeRun       // 러닝 재개
     case finishRun       // 러닝 종료
+    case startRun        // 워치에서 러닝 시작 (commandValue = targetPaceSeconds)
     case adjustServo     // 서보 각도 조절 (+1 or -1, commandValue에 delta 포함)
     case setDayMode      // 낮 점멸 모드 (commandValue: 0 or 1)
     case requestSync     // 전체 상태 즉시 동기화 요청

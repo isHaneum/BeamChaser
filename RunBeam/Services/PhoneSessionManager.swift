@@ -78,6 +78,15 @@ final class PhoneSessionManager: NSObject, ObservableObject {
             runSession?.pauseRun()
         case .resumeRun:
             runSession?.resumeRun()
+        case .startRun:
+            // value = targetPaceSeconds (Int)
+            let paceSeconds = Double(value)
+            if paceSeconds > 0, let rs = runSession {
+                let min = Int(paceSeconds) / 60
+                let sec = Int(paceSeconds) % 60
+                let target = PaceTarget(minutesPerKm: min, secondsPerKm: sec)
+                rs.startRun(target: target)
+            }
         case .finishRun:
             // finishRun은 route/distance를 locationService에서 가져옴
             if let ls = locationService, let rs = runSession {

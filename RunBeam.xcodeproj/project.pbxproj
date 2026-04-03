@@ -391,10 +391,7 @@
 				TargetAttributes = {
 					073263A651C700D3F754122E = {
 						DevelopmentTeam = VS723SVX24;
-						SystemCapabilities = "[\"com.apple.BackgroundModes.location\": [\"enabled\": true], \"com.apple.BackgroundModes.bluetooth-central\": [\"enabled\": true], \"com.apple.BackgroundModes\": [\"enabled\": true]]";
-					};
-					1D14E2F89DC336B18E7D7C56 = {
-						DevelopmentTeam = VS723SVX24;
+						SystemCapabilities = "[\"com.apple.BackgroundModes.bluetooth-central\": [\"enabled\": true], \"com.apple.BackgroundModes\": [\"enabled\": true], \"com.apple.BackgroundModes.location\": [\"enabled\": true]]";
 					};
 				};
 			};
@@ -655,6 +652,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = RunBeamWatch/Resources/RunBeamWatch.entitlements;
+				DEVELOPMENT_TEAM = 65V7ZCL579;
 				INFOPLIST_FILE = RunBeamWatch/Resources/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = com.goldmine.runbeam.watchapp;
 				SDKROOT = watchos;
@@ -668,6 +666,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = RunBeamWatch/Resources/RunBeamWatch.entitlements;
+				DEVELOPMENT_TEAM = 65V7ZCL579;
 				INFOPLIST_FILE = RunBeamWatch/Resources/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = com.goldmine.runbeam.watchapp;
 				SDKROOT = watchos;

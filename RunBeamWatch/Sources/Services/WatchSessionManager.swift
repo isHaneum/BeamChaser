@@ -40,6 +40,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
     func pauseRun()            { send(.pauseRun) }
     func resumeRun()           { send(.resumeRun) }
     func finishRun()           { send(.finishRun) }
+    func startRun(targetPace: Double) { send(.startRun, value: Int(targetPace)) }
     func adjustServo(_ delta: Int) { send(.adjustServo, value: delta) }
     func setDayMode(_ on: Bool) { send(.setDayMode, value: on ? 1 : 0) }
     func requestSync()         { send(.requestSync) }

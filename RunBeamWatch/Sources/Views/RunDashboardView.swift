@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// 메인 러닝 대시보드 (Tab 1)
-/// - 상단: GPS 신호 도트
-/// - 중앙: 거대 Gap 게이지  (+Xm 초록 / -Xm 빨강)
-/// - 하단: 심박수 | 페이스 | 경과시간
+/// - 상단: 시간 | 심박수(네온 레드) | GPS 도트
+/// - 중앙: 원형 레이저 게이지  — 네온 레드/그린 글로우 아크 + 거대 Gap 숫자
+/// - 하단: 2x2 데이터 그리드 (페이스 | 시간 | 거리 | 속도)
 struct RunDashboardView: View {
     @EnvironmentObject var session: WatchSessionManager
 
@@ -12,18 +12,11 @@ struct RunDashboardView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // ── 상단: GPS + 연결 상태 ──────────────────────────
                 topBar
-
-                Spacer()
-
-                // ── 중앙: Gap 게이지 ──────────────────────────────
-                gapHero
-
-                Spacer()
-
-                // ── 하단: 심박수 | 페이스 | 시간 ──────────────────
-                bottomBar
+                Spacer(minLength: 4)
+                chaserGauge
+                Spacer(minLength: 4)
+                dataGrid
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -39,105 +32,119 @@ struct RunDashboardView: View {
 
     // MARK: - Sub Views
 
+    // 상단: 시간 | 심박수 | GPS
     private var topBar: some View {
-        HStack(spacing: 6) {
-            // GPS 신호 도트 (최대 4칸)
-            GPSSignalDots(strength: session.snapshot.gpsAccuracy)
-
+        HStack(spacing: 4) {
+            Text(Date(), style: .time)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.55))
             Spacer()
-
-            // iPhone 연결 상태
-            Circle()
-                .fill(session.isPhoneReachable ? Color(red: 0.2, green: 0.85, blue: 0.4) : Color.gray.opacity(0.5))
-                .frame(width: 7, height: 7)
-
-            // 심박수
             if session.snapshot.heartRate > 0 {
-                Text("\(session.snapshot.heartRate)")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundColor(.white.opacity(0.8))
-                + Text(" bpm")
-                    .font(.system(size: 10, weight: .regular))
-                    .foregroundColor(.gray)
+                HStack(spacing: 2) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 9))
+                    Text("\(session.snapshot.heartRate)")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundColor(neonRed)
+                .padding(.trailing, 5)
             }
+            GPSSignalDots(accuracy: session.snapshot.gpsAccuracy)
         }
-        .frame(height: 18)
+        .frame(height: 16)
     }
 
-    private var gapHero: some View {
-        VStack(spacing: 2) {
-            // 레이블
-            Text(gapLabel)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.gray)
-                .textCase(.uppercase)
-                .tracking(1.2)
+    // 중앙: 원형 레이저 게이지
+    private var chaserGauge: some View {
+        ZStack {
+            // 배경 링
+            Circle()
+                .stroke(Color.white.opacity(0.07), lineWidth: 12)
+                .frame(width: 106, height: 106)
 
-            // 메인 숫자
-            Text(gapText)
-                .font(.system(size: 52, weight: .heavy, design: .rounded))
-                .foregroundColor(gapColor)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .monospacedDigit()
+            // 격차 아크 (글로우)
+            Circle()
+                .trim(from: 0, to: arcFraction)
+                .stroke(gapColor, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: 106, height: 106)
+                .shadow(color: gapColor.opacity(0.65), radius: 8)
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: arcFraction)
 
-            // 단위
-            Text("m")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(gapColor.opacity(0.7))
+            // 중앙 텍스트
+            VStack(spacing: 0) {
+                HStack(alignment: .bottom, spacing: 1) {
+                    Text(gapText)
+                        .font(.system(size: 46, weight: .heavy, design: .rounded))
+                        .foregroundColor(.white)
+                        .monospacedDigit()
+                        .minimumScaleFactor(0.55)
+                        .lineLimit(1)
+                    Text("m")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.45))
+                        .padding(.bottom, 7)
+                }
+                Text(gapLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(gapColor)
+                    .tracking(0.4)
+            }
         }
     }
 
-    private var bottomBar: some View {
-        HStack(spacing: 0) {
-            // 페이스
-            VStack(spacing: 1) {
-                Text(PaceFormatter.format(session.snapshot.currentPaceSecondsPerKm))
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white)
-                Text("페이스")
-                    .font(.system(size: 9))
-                    .foregroundColor(.gray)
+    // 하단: 2x2 데이터 그리드
+    private var dataGrid: some View {
+        let items: [(String, String)] = [
+            ("페이스", PaceFormatter.format(session.snapshot.currentPaceSecondsPerKm)),
+            ("시간",   elapsedText),
+            ("거리",   String(format: "%.2f km", session.snapshot.distanceMeters / 1000)),
+            ("속도",   speedText)
+        ]
+        return LazyVGrid(
+            columns: [GridItem(.flexible()), GridItem(.flexible())],
+            spacing: 4
+        ) {
+            ForEach(items, id: \.0) { label, value in
+                VStack(spacing: 1) {
+                    Text(value)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundColor(neonRed)
+                        .monospacedDigit()
+                    Text(label)
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.04))
+                .cornerRadius(5)
             }
-            .frame(maxWidth: .infinity)
-
-            // 구분선
-            Rectangle()
-                .fill(Color.gray.opacity(0.3))
-                .frame(width: 1, height: 24)
-
-            // 경과 시간
-            VStack(spacing: 1) {
-                Text(elapsedText)
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white)
-                Text("시간")
-                    .font(.system(size: 9))
-                    .foregroundColor(.gray)
-            }
-            .frame(maxWidth: .infinity)
         }
-        .frame(height: 36)
     }
 
     // MARK: - Helpers
 
+    private let neonRed = Color(red: 1.0, green: 0.12, blue: 0.12)
     private var gapInt: Int { Int(session.snapshot.gapMeters.rounded()) }
 
-    private var gapText: String {
-        gapInt >= 0 ? "+\(gapInt)" : "\(gapInt)"
-    }
+    private var gapText: String { gapInt >= 0 ? "+\(gapInt)" : "\(gapInt)" }
 
     private var gapLabel: String {
-        if gapInt > 0  { return "앞서는 거리" }
-        if gapInt < 0  { return "뒤처진 거리" }
-        return "페이스 일치"
+        if gapInt > 0 { return "앞서는 중" }
+        if gapInt < 0 { return "뒤처지는 중" }
+        return "ON PACE"
     }
 
     private var gapColor: Color {
-        if gapInt > 0  { return Color(red: 0.2, green: 0.85, blue: 0.4) }
-        if gapInt < 0  { return Color(red: 1.0, green: 0.2, blue: 0.2) }
+        if gapInt > 0 { return Color(red: 0.2, green: 0.85, blue: 0.4) }
+        if gapInt < 0 { return neonRed }
         return Color(red: 1.0, green: 0.55, blue: 0.0)
+    }
+
+    private var arcFraction: Double {
+        let absGap = min(abs(Double(gapInt)), 50.0)
+        return absGap / 50.0 * 0.75
     }
 
     private var elapsedText: String {
@@ -145,25 +152,30 @@ struct RunDashboardView: View {
         let h = secs / 3600
         let m = (secs % 3600) / 60
         let s = secs % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
-        }
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
         return String(format: "%02d:%02d", m, s)
+    }
+
+    private var speedText: String {
+        let pace = session.snapshot.currentPaceSecondsPerKm
+        guard pace > 0, pace.isFinite, pace < 3600 else { return "--" }
+        return String(format: "%.1f km/h", 3600.0 / pace)
     }
 }
 
-// MARK: - GPS Signal Dots
-
-private struct GPSSignalDots: View {
-    let strength: Double  // 0~1 (1 = 최상)
+// MARK: - GPS 신호 도트 (4개 원 — accuracy 낮을수록 good)
+// Internal 접근성: QuickStartView 등 같은 모듈에서 공유
+struct GPSSignalDots: View {
+    let accuracy: Double   // CLLocation.horizontalAccuracy (m), -1 = 미수신
 
     private var filledCount: Int {
-        switch strength {
-        case 0.8...: return 4
-        case 0.5...: return 3
-        case 0.2...: return 2
-        case 0.01...: return 1
-        default: return 0
+        guard accuracy >= 0 else { return 0 }
+        switch accuracy {
+        case ..<5:   return 4
+        case ..<15:  return 3
+        case ..<50:  return 2
+        case ..<100: return 1
+        default:     return 0
         }
     }
 
@@ -178,12 +190,4 @@ private struct GPSSignalDots: View {
             }
         }
     }
-}
-
-#Preview {
-    RunDashboardView()
-        .environmentObject({
-            let m = WatchSessionManager()
-            return m
-        }())
 }
