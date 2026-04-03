@@ -30,6 +30,7 @@ struct LaserCommand {
         case startRun      = 0x05
         case stopRun       = 0x06
         case requestStatus = 0x07
+        case setDayMode    = 0x08  // + 1바이트 (0x00=OFF, 0x01=ON)
     }
 
     let type: CommandType
@@ -76,6 +77,11 @@ struct LaserCommand {
     /// 러닝 종료 명령 (레이저 끄기 + WAIT 복귀)
     static func stopRun() -> LaserCommand {
         LaserCommand(type: .stopRun, payload: [])
+    }
+
+    /// 낮 점멸 모드 설정 (10Hz 깜빡임으로 주간 가시성 향상)
+    static func setDayMode(_ enabled: Bool) -> LaserCommand {
+        LaserCommand(type: .setDayMode, payload: [enabled ? 0x01 : 0x00])
     }
 
     /// 상태 즉시 요청

@@ -8,7 +8,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
             FirebaseApp.configure()
         } else {
-            print("⚠️ GoogleService-Info.plist 없음 — Firebase 비활성 상태")
+            print("GoogleService-Info.plist 없음 — Firebase 비활성 상태")
         }
         return true
     }
@@ -23,6 +23,7 @@ struct RunBeamApp: App {
     @StateObject private var profileService = ProfileService()
     @StateObject private var authService = AuthService()
     @StateObject private var backendService = BackendService()
+    @StateObject private var phoneSession = PhoneSessionManager()
 
     var body: some Scene {
         WindowGroup {
@@ -34,6 +35,21 @@ struct RunBeamApp: App {
                 .environmentObject(profileService)
                 .environmentObject(authService)
                 .environmentObject(backendService)
+                .environmentObject(phoneSession)
+                .onAppear {
+                    // Watch 연동 서비스 주입
+                    phoneSession.runSession      = runSession
+                    phoneSession.bleService      = bleService
+                    phoneSession.locationService = locationService
+                }
+                .onChange(of: runSession.runState) { _, state in
+                    // 러닝 시작 시 Watch 동기화 타이머 가동
+                    if state == .running {
+                        phoneSession.startSync()
+                    } else if state == .finished || state == .idle {
+                        phoneSession.stopSync()
+                    }
+                }
         }
     }
 }

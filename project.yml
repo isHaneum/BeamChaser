@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.goldmine
   deploymentTarget:
     iOS: "17.0"
+    watchOS: "10.0"
   xcodeVersion: "16.0"
   generateEmptyDirectories: true
 
@@ -25,6 +26,7 @@ targets:
         excludes:
           - "**/*.c"
           - "**/*.ino"
+      - path: Shared
     dependencies:
       - package: FirebaseSDK
         product: FirebaseCore
@@ -64,3 +66,31 @@ targets:
           enabled: true
         com.apple.BackgroundModes.location:
           enabled: true
+
+  RunBeamWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: RunBeamWatch/Sources
+      - path: Shared
+    resources:
+      - path: RunBeamWatch/Resources
+    dependencies:
+      - target: RunBeam
+        embed: false
+    info:
+      path: RunBeamWatch/Resources/Info.plist
+      properties:
+        WKWatchOnly: true
+        WKCompanionAppBundleIdentifier: com.goldmine.runbeam
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationPortrait
+        NSHealthShareUsageDescription: "러닝 중 심박수를 표시하기 위해 건강 데이터 읽기가 필요합니다."
+        NSHealthUpdateUsageDescription: "러닝 운동 기록을 저장하기 위해 건강 데이터 쓰기가 필요합니다."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.runbeam.watchapp
+        TARGETED_DEVICE_FAMILY: "4"
+    entitlements:
+      path: RunBeamWatch/Resources/RunBeamWatch.entitlements

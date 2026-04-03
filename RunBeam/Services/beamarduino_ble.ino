@@ -12,6 +12,7 @@
  *    CMD_START_RUN   0x05          → 러닝 시작 (GPS 트래킹 시작)
  *    CMD_STOP_RUN    0x06          → 러닝 종료 (레이저 끄기, WAIT 복귀)
  *    CMD_REQUEST_STATUS 0x07       → 상태 즉시 전송 요청
+ *    CMD_SET_DAY_MODE  0x08 MM      → 낮 점멸 모드 (0x00=OFF, 0x01=ON)
  *
  *  장치에서 보내는 상태 (1초마다 + 요청 시):
  *    STX(0xAA) battery laserOn servoAngle zone pace_H pace_L dist_H dist_L ETX(0x55)
@@ -63,6 +64,7 @@ Servo servoTilt;
 #define CMD_START_RUN      0x05
 #define CMD_STOP_RUN       0x06
 #define CMD_REQUEST_STATUS 0x07
+#define CMD_SET_DAY_MODE   0x08  // 낮 점멸 모드 (0x01=ON, 0x00=OFF)
 
 #define STATUS_STX 0xAA
 #define STATUS_ETX 0x55
@@ -125,9 +127,10 @@ const int ZONE_SLOW_OFFSET =  20;   // RED:  목표보다 20초 느림
 const int ZONE_MARGIN_s    =   3;
 
 // ─────────── 레이저/BLE 상태 ───────────
-bool laserEnabled = false;
-bool bleConnected = false;  // BLE 연결 여부 추적
-bool appControlled = false; // 앱이 제어 중인지
+bool laserEnabled  = false;
+bool bleConnected  = false;
+bool appControlled = false;
+bool dayMode       = false;  // 낮 점멸 모드 (10Hz 깜빡임)
 
 // ─────────── 스위치 디바운스 ───────────
 bool     lastSwitchRaw       = HIGH;
@@ -149,12 +152,31 @@ uint8_t bleIdx = 0;
 //  배터리 전압 읽기 (A0 핀에 분압 회로)
 //  분압: VIN → 10kΩ → A0 → 10kΩ → GND
 //  실제 전압 = ADC * 5.0/1023 * 2
-//  9V 기준: 100% = 9V, 0% = 6V
+//
+//  BATTERY_TYPE 을 사용하는 배터리에 맞게 변경:
+//    0 = 9V 알카라인  (기본, 6.0~9.0V)
+//    1 = 18650 2셀    (7.4V LiPo, 6.0~8.4V)  ← 권장
+//    2 = 18650 단셀   (3.7V + 승압 → 5V VIN, 3.0~4.2V × 2 for 분압)
+//
+//  18650 2셀 사용 시: 100% = 8.4V, 0% = 6.0V
 // ================================================================
+#define BATTERY_TYPE 0  // 0:9V, 1:18650 2셀, 2:18650 단셀
+
 uint8_t readBatteryPercent() {
     int raw = analogRead(A0);
-    float voltage = raw * (5.0 / 1023.0) * 2.0;  // 분압 보정
-    float pct = (voltage - 6.0) / (9.0 - 6.0) * 100.0;
+    float voltage = raw * (5.0f / 1023.0f) * 2.0f;  // 10kΩ 분압 보정
+
+#if BATTERY_TYPE == 0
+    // 9V 알카라인: 100%=9V, 0%=6V
+    float pct = (voltage - 6.0f) / (9.0f - 6.0f) * 100.0f;
+#elif BATTERY_TYPE == 1
+    // 18650 2셀 LiPo: 100%=8.4V, 0%=6.0V
+    float pct = (voltage - 6.0f) / (8.4f - 6.0f) * 100.0f;
+#else
+    // 18650 단셀 (5V 승압): 전압 직접 측정 불가 → 항상 100 반환
+    float pct = 100.0f;
+#endif
+
     return (uint8_t)constrain(pct, 0, 100);
 }
 
@@ -173,9 +195,12 @@ double haversine_m(double lat1, double lon1, double lat2, double lon2) {
 
 void updateGPS() {
     // SoftwareSerial 전환: GPS 읽기
+    // WAIT 모드: 20ms만 읽어 GPS lock만 유지 (전력 절감)
+    // PACE 모드: 100ms 읽어 정확한 좌표 확보
+    uint32_t readWindow = (mode == PACE_TRACK) ? 100 : 20;
     gpsSS.listen();
     uint32_t start = millis();
-    while (millis() - start < 100) {
+    while (millis() - start < readWindow) {
         while (gpsSS.available()) {
             gps.encode(gpsSS.read());
         }
@@ -268,32 +293,29 @@ Zone calcZone(float pace_skm) {
 //  레이저 & 서보 제어
 // ================================================================
 void setLasers(Zone z) {
-    if (!laserEnabled) {
-        digitalWrite(LASER_FAST_PIN, LOW);
-        digitalWrite(LASER_BASE_PIN, LOW);
-        digitalWrite(LASER_SLOW_PIN, LOW);
-        return;
-    }
+    // 레이저 전체 끄기
+    digitalWrite(LASER_FAST_PIN, LOW);
+    digitalWrite(LASER_BASE_PIN, LOW);
+    digitalWrite(LASER_SLOW_PIN, LOW);
+
+    if (!laserEnabled) return;
+
+    // 낮 점멸 모드: 50ms ON / 50ms OFF = 10Hz
+    // 인간 눈이 정지 광원보다 깜빡임을 훨씬 잘 감지 → 낮 가시성 향상
+    if (dayMode && (millis() % 100) >= 50) return;
+
     switch (z) {
         case ZONE_BLUE:
             digitalWrite(LASER_FAST_PIN, HIGH);
-            digitalWrite(LASER_BASE_PIN, LOW);
-            digitalWrite(LASER_SLOW_PIN, LOW);
             break;
         case ZONE_GREEN:
-            digitalWrite(LASER_FAST_PIN, LOW);
             digitalWrite(LASER_BASE_PIN, HIGH);
-            digitalWrite(LASER_SLOW_PIN, LOW);
             break;
         case ZONE_RED:
-            digitalWrite(LASER_FAST_PIN, LOW);
-            digitalWrite(LASER_BASE_PIN, LOW);
             digitalWrite(LASER_SLOW_PIN, HIGH);
             break;
         default:
-            digitalWrite(LASER_FAST_PIN, LOW);
             digitalWrite(LASER_BASE_PIN, HIGH);  // 기본 초록
-            digitalWrite(LASER_SLOW_PIN, LOW);
             break;
     }
 }
@@ -467,6 +489,15 @@ void processBLECommand() {
                 complete = true;
                 break;
 
+            case CMD_SET_DAY_MODE:
+                if (bleIdx >= 2) {
+                    dayMode = (bleBuf[1] == 0x01);
+                    Serial.print(F("[BLE] Day mode: "));
+                    Serial.println(dayMode ? F("ON") : F("OFF"));
+                    complete = true;
+                }
+                break;
+
             default:
                 complete = true; // 알 수 없는 명령 → 버림
                 break;
@@ -563,8 +594,11 @@ void loop() {
     // 2) 물리 버튼 확인
     checkSwitch();
 
-    // 3) GPS 업데이트 (200ms 간격으로 전환)
-    if (now - lastGpsRead_ms > 200) {
+    // 3) GPS 업데이트
+    //    PACE_TRACK: 200ms마다 폴링 (페이스 계산 정확도 필요)
+    //    WAIT_SWITCH: 1초마다만 폴링 (GPS 수신 유지용, 전력 절감)
+    uint32_t gpsInterval = (mode == PACE_TRACK) ? 200 : 1000;
+    if (now - lastGpsRead_ms > gpsInterval) {
         updateGPS();
         lastGpsRead_ms = now;
     }

@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("mountPosition") private var mountPositionRaw: String = LaserCalibration.MountPosition.chest.rawValue
     @AppStorage("laserAngleOffset") private var laserAngleOffset: Double = 0.0
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
+    @AppStorage("dayMode") private var dayMode: Bool = false
 
     var body: some View {
         ZStack {
@@ -88,23 +89,26 @@ struct SettingsView: View {
 
                             Divider().padding(.leading, 58).overlay(RBColor.divider)
 
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: "sun.max.fill")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(RBColor.accent)
-                                        .frame(width: 32)
-                                    Text("레이저 밝기")
+                            // 낮 점멸 모드: 10Hz 깜빡임으로 주간 레이저 가시성 향상
+                            HStack(spacing: 12) {
+                                Image(systemName: dayMode ? "sun.max.fill" : "moon.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(dayMode ? Color.yellow : RBColor.textSecondary)
+                                    .frame(width: 32)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("주간 모드 (레이저 점멸)")
                                         .font(RBFont.label(15))
                                         .foregroundStyle(RBColor.textPrimary)
-                                    Spacer()
-                                    Text("\(Int(laserBrightness * 100))%")
-                                        .font(RBFont.caption(13))
+                                    Text("밝은 곳에서 레이저를 10Hz로 깜빡여 가시성 향상")
+                                        .font(RBFont.caption(12))
                                         .foregroundStyle(RBColor.textSecondary)
                                 }
-                                Slider(value: $laserBrightness, in: 0.1...1.0, step: 0.1)
-                                    .tint(RBColor.accent)
-                                    .padding(.leading, 44)
+                                Spacer()
+                                Toggle("", isOn: $dayMode)
+                                    .tint(Color.yellow)
+                                    .onChange(of: dayMode) { _, newValue in
+                                        bleService.setDayMode(newValue)
+                                    }
                             }
                             .padding(14)
                         }

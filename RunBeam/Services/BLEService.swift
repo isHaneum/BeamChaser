@@ -139,6 +139,11 @@ final class BLEService: NSObject, ObservableObject {
     func requestStatus() {
         sendCommand(.requestStatus())
     }
+
+    /// 낮 점멸 모드 설정 (10Hz 깜빡임으로 주간 가시성 향상)
+    func setDayMode(_ enabled: Bool) {
+        sendCommand(.setDayMode(enabled))
+    }
 }
 
 // MARK: - CBCentralManagerDelegate
