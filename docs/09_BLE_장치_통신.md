@@ -1,9 +1,9 @@
 # BLE 장치 통신 (BLEService + BLEProtocol)
 
 ## 파일 위치
-- `RunBeam/Services/BLEService.swift` — CoreBluetooth BLE 통신 서비스
-- `RunBeam/Models/BLEProtocol.swift` — 프로토콜 정의 (UUID, 커맨드, 상태 파싱)
-- `RunBeam/Services/beamarduino_ble.ino` — Arduino 펌웨어
+- `BeamChaser/Services/BLEService.swift` — CoreBluetooth BLE 통신 서비스
+- `BeamChaser/Models/BLEProtocol.swift` — 프로토콜 정의 (UUID, 커맨드, 상태 파싱)
+- `BeamChaser/Services/beamarduino_ble.ino` — Arduino 펌웨어
 
 ---
 

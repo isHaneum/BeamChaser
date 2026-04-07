@@ -1,4 +1,4 @@
-# RunBeam (BeamChaser) 문서 인덱스
+# BeamChaser (BeamChaser) 문서 인덱스
 
 > 레이저 페이스메이커 러닝 앱 — 전체 기능 문서
 
@@ -27,8 +27,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| 앱 이름 | RunBeam |
-| Bundle ID | `com.goldmine.runbeam` |
+| 앱 이름 | BeamChaser |
+| Bundle ID | `com.goldmine.beamchaser` |
 | 플랫폼 | iOS 17.0+ |
 | 프레임워크 | SwiftUI |
 | 빌드 도구 | XcodeGen (`project.yml`) |

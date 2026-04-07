@@ -1,4 +1,4 @@
-name: RunBeam
+name: BeamChaser
 options:
   bundleIdPrefix: com.goldmine
   deploymentTarget:
@@ -18,11 +18,11 @@ packages:
     version: 11.6.0
 
 targets:
-  RunBeam:
+  BeamChaser:
     type: application
     platform: iOS
     sources:
-      - path: RunBeam
+      - path: BeamChaser
         excludes:
           - "**/*.c"
           - "**/*.ino"
@@ -37,7 +37,7 @@ targets:
       - package: FirebaseSDK
         product: FirebaseStorage
     info:
-      path: RunBeam/Resources/Info.plist
+      path: BeamChaser/Resources/Info.plist
       properties:
         UILaunchScreen: {}
         UIRequiresFullScreen: true
@@ -55,9 +55,9 @@ targets:
           - location
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.runbeam
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.beamchaser
     entitlements:
-      path: RunBeam/Resources/RunBeam.entitlements
+      path: BeamChaser/Resources/BeamChaser.entitlements
     attributes:
       SystemCapabilities:
         com.apple.BackgroundModes:
@@ -67,22 +67,22 @@ targets:
         com.apple.BackgroundModes.location:
           enabled: true
 
-  RunBeamWatch:
+  BeamChaserWatch:
     type: application
     platform: watchOS
     sources:
-      - path: RunBeamWatch/Sources
+      - path: BeamChaserWatch/Sources
       - path: Shared
     resources:
-      - path: RunBeamWatch/Resources
+      - path: BeamChaserWatch/Resources
     dependencies:
-      - target: RunBeam
+      - target: BeamChaser
         embed: false
     info:
-      path: RunBeamWatch/Resources/Info.plist
+      path: BeamChaserWatch/Resources/Info.plist
       properties:
         WKApplication: true
-        WKCompanionAppBundleIdentifier: com.goldmine.runbeam
+        WKCompanionAppBundleIdentifier: com.goldmine.beamchaser
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationPortrait
@@ -90,7 +90,7 @@ targets:
         NSHealthUpdateUsageDescription: "러닝 운동 기록을 저장하기 위해 건강 데이터 쓰기가 필요합니다."
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.runbeam.watchapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.beamchaser.watchapp
         TARGETED_DEVICE_FAMILY: "4"
     entitlements:
-      path: RunBeamWatch/Resources/RunBeamWatch.entitlements
+      path: BeamChaserWatch/Resources/BeamChaserWatch.entitlements

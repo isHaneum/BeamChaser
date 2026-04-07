@@ -1,0 +1,746 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		033E0F74FD536F2126AD8F1A /* WatchConnectivityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16A9622450CD29C3868035D /* WatchConnectivityModels.swift */; };
+		092F4AF01E8CCF3193C24E94 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B4618F0BB6A5B90309F60B5 /* DesignSystem.swift */; };
+		097B882FD67B2509AA0DB9BB /* HapticEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408A0537D6E40E7FC0AD42A8 /* HapticEngine.swift */; };
+		0EA746A819F1C6CEE134ED62 /* BeamChaserWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76EAAF197E0C78FFF30ACAE4 /* BeamChaserWatchApp.swift */; };
+		148895CF5475283647DF7B61 /* CommunityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7295BFE08815D13B836926FC /* CommunityView.swift */; };
+		19C83CD4229CA45D9739D8A1 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725CBF43683798897C245619 /* ContentView.swift */; };
+		2FBF5F4C0308318C6191F507 /* RunActiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B85E5B1A6042C1D3E01E367 /* RunActiveView.swift */; };
+		439A7C59E48047C32E2E3FD2 /* BLEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0D6B910F23861E6000CC72B /* BLEService.swift */; };
+		45B33AA213CF604A9352EA49 /* RunMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E761CE5745E1E27BDDD3971 /* RunMapView.swift */; };
+		602BF8DC03C4E2BBA3849126 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F21AB3D8FB0F9FDE76D176DE /* AuthService.swift */; };
+		624287CFE289ADB3EEA7FBAE /* RunnerProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 670899BBB5162FB8D7FD934F /* RunnerProfile.swift */; };
+		6952E59CEE8CA2A05D105DED /* PhoneSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF3585D62692D2884D018C68 /* PhoneSessionManager.swift */; };
+		6D67C0FBB1B30146446B0833 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = ED77922E47FB21C3EE189C75 /* FirebaseFirestore */; };
+		73A101B1841824C3BCC17E4F /* HardwareControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18C9F989EFE84E4B222F99E /* HardwareControlView.swift */; };
+		819FE3D0F1F39FA44DD87351 /* BLEProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A74FDF8A8301210FED87B7 /* BLEProtocol.swift */; };
+		8B21E7ED8C524740EBA2AA51 /* PaceSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610C28A2979D6C92071DDC9C /* PaceSetupView.swift */; };
+		8B4F5D67D32779135C4EE112 /* GameSelectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2EDFBDC2DC31181A14A677 /* GameSelectView.swift */; };
+		8C46109BBEE459949F3F27F1 /* WatchSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0DA569F85367C33950AB7F /* WatchSessionManager.swift */; };
+		8D2558DE5396A408ACB85C9E /* RunSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18A98C73EAB6DF0432694B09 /* RunSessionManager.swift */; };
+		8F971F7148329C2844384D0D /* PaceMakerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 813D1AF6F326A5DA1C6C4C54 /* PaceMakerEngine.swift */; };
+		9242E0CCA034C9AB5E4C99D2 /* DeviceConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA255F94000AD912FF9C8126 /* DeviceConnectionView.swift */; };
+		9461AF72B82EF9A7CD4960E3 /* HealthKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F31ED9D568A85DE4B9FCC5 /* HealthKitService.swift */; };
+		97AA6D09F408D06CA09DABFD /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2CFBF0DDD13F75E351F5BE0C /* FirebaseCore */; };
+		9B9B653B743E9B42E36EAD3C /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = BFD318A886523F2B9FC10A36 /* FirebaseStorage */; };
+		A26BC7FB60A8A27486484C53 /* RunShareCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6266C3A67357E580E475DA4 /* RunShareCardView.swift */; };
+		A3293CF98B7DB4B7D0A98A4A /* watch.md in Resources */ = {isa = PBXBuildFile; fileRef = 52390F65152685F120168714 /* watch.md */; };
+		A949B7F989CB078FA5CA7C5A /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B00F95FAEE3C61EE4322D7 /* ProfileView.swift */; };
+		A94A671CD3768EE05F4BB94F /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B15E7A28EC8B9B27FDAD3B /* HomeView.swift */; };
+		AA427362057CE70189116660 /* BeamChaserApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 036A44CC62FD9ED38D6FB01B /* BeamChaserApp.swift */; };
+		B409945AA58A5542D203A802 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A9CA4A1925374FA93B6157BA /* Assets.xcassets */; };
+		C2A6FD72AB9BE4DAF43248BF /* IdleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8EA7B29F5CAA89DA84F410C /* IdleView.swift */; };
+		CF021E30A2E8BD2D67ECFE6A /* RunModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AEF96941AA69C6672CB9EA4 /* RunModels.swift */; };
+		D7420E1B2479C8377B616599 /* RunDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EDBAC61D4742DAE8C17430E /* RunDetailView.swift */; };
+		DEBACF7044BD9D1597FB88A4 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 37EABC761D833808881FA464 /* FirebaseAuth */; };
+		DECB37A8190BFC330B89D70D /* PauseFinishView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7680D59F5E31D5758649CC /* PauseFinishView.swift */; };
+		E517959A035D484096945BD5 /* RunDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25D3A6F70CEF38C1133515D /* RunDashboardView.swift */; };
+		ED8D67653E36269202191955 /* BackendService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D7EBDE380218A8D6922805 /* BackendService.swift */; };
+		F2DCF91C1BA9AA79AB5E6C38 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C1C789F72B465328AA9A78 /* SettingsView.swift */; };
+		F49911ABE4404A3FFBC04C4C /* FirebaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EACDEBB890285087F77FDDF /* FirebaseConfig.swift */; };
+		F6A42E494BA1959974BC9636 /* WatchConnectivityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16A9622450CD29C3868035D /* WatchConnectivityModels.swift */; };
+		FE5970C75935B9CF91BB8DFA /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71AEFC51B741B211C7B114C6 /* LocationService.swift */; };
+		FFCDC79BA4126E2A7BF94571 /* RunHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8A98B1E01C10C70F36205E /* RunHistoryView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7B90CCADC4671784AC9702BE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FA067008A94EB3D09F838B98 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 073263A651C700D3F754122E;
+			remoteInfo = BeamChaser;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		00B00F95FAEE3C61EE4322D7 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		036A44CC62FD9ED38D6FB01B /* BeamChaserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeamChaserApp.swift; sourceTree = "<group>"; };
+		0B85E5B1A6042C1D3E01E367 /* RunActiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunActiveView.swift; sourceTree = "<group>"; };
+		17A74FDF8A8301210FED87B7 /* BLEProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEProtocol.swift; sourceTree = "<group>"; };
+		18A98C73EAB6DF0432694B09 /* RunSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunSessionManager.swift; sourceTree = "<group>"; };
+		1E761CE5745E1E27BDDD3971 /* RunMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunMapView.swift; sourceTree = "<group>"; };
+		2F7680D59F5E31D5758649CC /* PauseFinishView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseFinishView.swift; sourceTree = "<group>"; };
+		408A0537D6E40E7FC0AD42A8 /* HapticEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticEngine.swift; sourceTree = "<group>"; };
+		45B15E7A28EC8B9B27FDAD3B /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		4813F609730E55A8BA6CDAEA /* BeamChaser.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BeamChaser.entitlements; sourceTree = "<group>"; };
+		52390F65152685F120168714 /* watch.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = watch.md; sourceTree = "<group>"; };
+		56C1C789F72B465328AA9A78 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		5B4618F0BB6A5B90309F60B5 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
+		60498272A7127F55DFC2C6CF /* BeamChaserWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeamChaserWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		610C28A2979D6C92071DDC9C /* PaceSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceSetupView.swift; sourceTree = "<group>"; };
+		670899BBB5162FB8D7FD934F /* RunnerProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerProfile.swift; sourceTree = "<group>"; };
+		6AEF96941AA69C6672CB9EA4 /* RunModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunModels.swift; sourceTree = "<group>"; };
+		6BFCF5F1F82D23697913B8AC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6D0DA569F85367C33950AB7F /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
+		71AEFC51B741B211C7B114C6 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		725CBF43683798897C245619 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		7295BFE08815D13B836926FC /* CommunityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityView.swift; sourceTree = "<group>"; };
+		76EAAF197E0C78FFF30ACAE4 /* BeamChaserWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeamChaserWatchApp.swift; sourceTree = "<group>"; };
+		78F31ED9D568A85DE4B9FCC5 /* HealthKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitService.swift; sourceTree = "<group>"; };
+		813D1AF6F326A5DA1C6C4C54 /* PaceMakerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceMakerEngine.swift; sourceTree = "<group>"; };
+		8EACDEBB890285087F77FDDF /* FirebaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseConfig.swift; sourceTree = "<group>"; };
+		8EDBAC61D4742DAE8C17430E /* RunDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunDetailView.swift; sourceTree = "<group>"; };
+		9F2EDFBDC2DC31181A14A677 /* GameSelectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSelectView.swift; sourceTree = "<group>"; };
+		A18C9F989EFE84E4B222F99E /* HardwareControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareControlView.swift; sourceTree = "<group>"; };
+		A1D7EBDE380218A8D6922805 /* BackendService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendService.swift; sourceTree = "<group>"; };
+		A25D3A6F70CEF38C1133515D /* RunDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunDashboardView.swift; sourceTree = "<group>"; };
+		A9CA4A1925374FA93B6157BA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BA8A98B1E01C10C70F36205E /* RunHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunHistoryView.swift; sourceTree = "<group>"; };
+		CA255F94000AD912FF9C8126 /* DeviceConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceConnectionView.swift; sourceTree = "<group>"; };
+		D0D6B910F23861E6000CC72B /* BLEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEService.swift; sourceTree = "<group>"; };
+		D6266C3A67357E580E475DA4 /* RunShareCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunShareCardView.swift; sourceTree = "<group>"; };
+		E16A9622450CD29C3868035D /* WatchConnectivityModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityModels.swift; sourceTree = "<group>"; };
+		EF3585D62692D2884D018C68 /* PhoneSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneSessionManager.swift; sourceTree = "<group>"; };
+		F21AB3D8FB0F9FDE76D176DE /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		F75DBFF665298FBDECD4DCBB /* BeamChaser.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeamChaser.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F8EA7B29F5CAA89DA84F410C /* IdleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8D4C913B45732B425D8CB4E4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				97AA6D09F408D06CA09DABFD /* FirebaseCore in Frameworks */,
+				DEBACF7044BD9D1597FB88A4 /* FirebaseAuth in Frameworks */,
+				6D67C0FBB1B30146446B0833 /* FirebaseFirestore in Frameworks */,
+				9B9B653B743E9B42E36EAD3C /* FirebaseStorage in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0DB3B3E4417EA279872BEBBC /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				F21AB3D8FB0F9FDE76D176DE /* AuthService.swift */,
+				A1D7EBDE380218A8D6922805 /* BackendService.swift */,
+				D0D6B910F23861E6000CC72B /* BLEService.swift */,
+				8EACDEBB890285087F77FDDF /* FirebaseConfig.swift */,
+				78F31ED9D568A85DE4B9FCC5 /* HealthKitService.swift */,
+				71AEFC51B741B211C7B114C6 /* LocationService.swift */,
+				813D1AF6F326A5DA1C6C4C54 /* PaceMakerEngine.swift */,
+				EF3585D62692D2884D018C68 /* PhoneSessionManager.swift */,
+				18A98C73EAB6DF0432694B09 /* RunSessionManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		0F8498BA32BB1B0D9CE45049 /* Game */ = {
+			isa = PBXGroup;
+			children = (
+				9F2EDFBDC2DC31181A14A677 /* GameSelectView.swift */,
+			);
+			path = Game;
+			sourceTree = "<group>";
+		};
+		176D8DB50E10EDA3D7341858 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				2338C2789A99BD9D211B6092 /* Community */,
+				DA0148A416477ACB607E0D3A /* Components */,
+				0F8498BA32BB1B0D9CE45049 /* Game */,
+				342FB66DD6423B2CF3514109 /* History */,
+				1924E1283C1E369962F0ABB3 /* Home */,
+				3A91687E1A523B3CA55EC9B5 /* Profile */,
+				9790B6A10074098B4C398A8E /* Running */,
+				A45268A6A9E3E605D0B71906 /* Settings */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		1924E1283C1E369962F0ABB3 /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				CA255F94000AD912FF9C8126 /* DeviceConnectionView.swift */,
+				45B15E7A28EC8B9B27FDAD3B /* HomeView.swift */,
+			);
+			path = Home;
+			sourceTree = "<group>";
+		};
+		193AE7C155F53B91F2974761 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				725CBF43683798897C245619 /* ContentView.swift */,
+				036A44CC62FD9ED38D6FB01B /* BeamChaserApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		1B81CBD2C5F3363E7FE94C03 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F75DBFF665298FBDECD4DCBB /* BeamChaser.app */,
+				60498272A7127F55DFC2C6CF /* BeamChaserWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2338C2789A99BD9D211B6092 /* Community */ = {
+			isa = PBXGroup;
+			children = (
+				7295BFE08815D13B836926FC /* CommunityView.swift */,
+			);
+			path = Community;
+			sourceTree = "<group>";
+		};
+		342FB66DD6423B2CF3514109 /* History */ = {
+			isa = PBXGroup;
+			children = (
+				8EDBAC61D4742DAE8C17430E /* RunDetailView.swift */,
+				BA8A98B1E01C10C70F36205E /* RunHistoryView.swift */,
+			);
+			path = History;
+			sourceTree = "<group>";
+		};
+		3A91687E1A523B3CA55EC9B5 /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				00B00F95FAEE3C61EE4322D7 /* ProfileView.swift */,
+				D6266C3A67357E580E475DA4 /* RunShareCardView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		4C3AAF7214D81C92B6E94553 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A18C9F989EFE84E4B222F99E /* HardwareControlView.swift */,
+				F8EA7B29F5CAA89DA84F410C /* IdleView.swift */,
+				2F7680D59F5E31D5758649CC /* PauseFinishView.swift */,
+				A25D3A6F70CEF38C1133515D /* RunDashboardView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		7D78A421A557CD6DD1B80DDB /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				E16A9622450CD29C3868035D /* WatchConnectivityModels.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		9790B6A10074098B4C398A8E /* Running */ = {
+			isa = PBXGroup;
+			children = (
+				610C28A2979D6C92071DDC9C /* PaceSetupView.swift */,
+				0B85E5B1A6042C1D3E01E367 /* RunActiveView.swift */,
+				1E761CE5745E1E27BDDD3971 /* RunMapView.swift */,
+			);
+			path = Running;
+			sourceTree = "<group>";
+		};
+		A45268A6A9E3E605D0B71906 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				56C1C789F72B465328AA9A78 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		A7016F902B4EBC79447C0B7A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A9CA4A1925374FA93B6157BA /* Assets.xcassets */,
+				6BFCF5F1F82D23697913B8AC /* Info.plist */,
+				4813F609730E55A8BA6CDAEA /* BeamChaser.entitlements */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AF327724D2BB056F438175C1 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				408A0537D6E40E7FC0AD42A8 /* HapticEngine.swift */,
+				6D0DA569F85367C33950AB7F /* WatchSessionManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		CC09E30B1B77D8FAA6EFB24A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				17A74FDF8A8301210FED87B7 /* BLEProtocol.swift */,
+				6AEF96941AA69C6672CB9EA4 /* RunModels.swift */,
+				670899BBB5162FB8D7FD934F /* RunnerProfile.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		DA0148A416477ACB607E0D3A /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				5B4618F0BB6A5B90309F60B5 /* DesignSystem.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		E537B46AC6A38584CF27F6BE /* BeamChaser */ = {
+			isa = PBXGroup;
+			children = (
+				52390F65152685F120168714 /* watch.md */,
+				193AE7C155F53B91F2974761 /* App */,
+				CC09E30B1B77D8FAA6EFB24A /* Models */,
+				A7016F902B4EBC79447C0B7A /* Resources */,
+				0DB3B3E4417EA279872BEBBC /* Services */,
+				176D8DB50E10EDA3D7341858 /* Views */,
+			);
+			path = BeamChaser;
+			sourceTree = "<group>";
+		};
+		EC03D127DCF3F7A9F30B4AC2 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		EEC1621A83E173CC849056AA /* App */ = {
+			isa = PBXGroup;
+			children = (
+				76EAAF197E0C78FFF30ACAE4 /* BeamChaserWatchApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		F42314AB369B833F58E26FE8 = {
+			isa = PBXGroup;
+			children = (
+				E537B46AC6A38584CF27F6BE /* BeamChaser */,
+				7D78A421A557CD6DD1B80DDB /* Shared */,
+				F8EF9816605BE069D1063BD1 /* Sources */,
+				1B81CBD2C5F3363E7FE94C03 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F8EF9816605BE069D1063BD1 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				EEC1621A83E173CC849056AA /* App */,
+				EC03D127DCF3F7A9F30B4AC2 /* Models */,
+				AF327724D2BB056F438175C1 /* Services */,
+				4C3AAF7214D81C92B6E94553 /* Views */,
+			);
+			name = Sources;
+			path = BeamChaserWatch/Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		073263A651C700D3F754122E /* BeamChaser */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A5546DECA20AC0D845AB1648 /* Build configuration list for PBXNativeTarget "BeamChaser" */;
+			buildPhases = (
+				9F49373C83287FA556D50779 /* Sources */,
+				15376C6B4DB48B22E74ED05A /* Resources */,
+				8D4C913B45732B425D8CB4E4 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BeamChaser;
+			packageProductDependencies = (
+				2CFBF0DDD13F75E351F5BE0C /* FirebaseCore */,
+				37EABC761D833808881FA464 /* FirebaseAuth */,
+				ED77922E47FB21C3EE189C75 /* FirebaseFirestore */,
+				BFD318A886523F2B9FC10A36 /* FirebaseStorage */,
+			);
+			productName = BeamChaser;
+			productReference = F75DBFF665298FBDECD4DCBB /* BeamChaser.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1D14E2F89DC336B18E7D7C56 /* BeamChaserWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6EFFAC6D9CF486E01AD90FED /* Build configuration list for PBXNativeTarget "BeamChaserWatch" */;
+			buildPhases = (
+				C00DE3CD92EDF1195D026AB6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				129DB37A4651BEF48286DC73 /* PBXTargetDependency */,
+			);
+			name = BeamChaserWatch;
+			packageProductDependencies = (
+			);
+			productName = BeamChaserWatch;
+			productReference = 60498272A7127F55DFC2C6CF /* BeamChaserWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		FA067008A94EB3D09F838B98 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					073263A651C700D3F754122E = {
+						SystemCapabilities = "[\"com.apple.BackgroundModes.bluetooth-central\": [\"enabled\": true], \"com.apple.BackgroundModes\": [\"enabled\": true], \"com.apple.BackgroundModes.location\": [\"enabled\": true]]";
+					};
+				};
+			};
+			buildConfigurationList = BE388D12C379758D3D9C784F /* Build configuration list for PBXProject "BeamChaser" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F42314AB369B833F58E26FE8;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F8DE9DE0819AD3A9622097BA /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1B81CBD2C5F3363E7FE94C03 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				073263A651C700D3F754122E /* BeamChaser */,
+				1D14E2F89DC336B18E7D7C56 /* BeamChaserWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		15376C6B4DB48B22E74ED05A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B409945AA58A5542D203A802 /* Assets.xcassets in Resources */,
+				A3293CF98B7DB4B7D0A98A4A /* watch.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9F49373C83287FA556D50779 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				602BF8DC03C4E2BBA3849126 /* AuthService.swift in Sources */,
+				819FE3D0F1F39FA44DD87351 /* BLEProtocol.swift in Sources */,
+				439A7C59E48047C32E2E3FD2 /* BLEService.swift in Sources */,
+				ED8D67653E36269202191955 /* BackendService.swift in Sources */,
+				148895CF5475283647DF7B61 /* CommunityView.swift in Sources */,
+				19C83CD4229CA45D9739D8A1 /* ContentView.swift in Sources */,
+				092F4AF01E8CCF3193C24E94 /* DesignSystem.swift in Sources */,
+				9242E0CCA034C9AB5E4C99D2 /* DeviceConnectionView.swift in Sources */,
+				F49911ABE4404A3FFBC04C4C /* FirebaseConfig.swift in Sources */,
+				8B4F5D67D32779135C4EE112 /* GameSelectView.swift in Sources */,
+				9461AF72B82EF9A7CD4960E3 /* HealthKitService.swift in Sources */,
+				A94A671CD3768EE05F4BB94F /* HomeView.swift in Sources */,
+				FE5970C75935B9CF91BB8DFA /* LocationService.swift in Sources */,
+				8F971F7148329C2844384D0D /* PaceMakerEngine.swift in Sources */,
+				8B21E7ED8C524740EBA2AA51 /* PaceSetupView.swift in Sources */,
+				6952E59CEE8CA2A05D105DED /* PhoneSessionManager.swift in Sources */,
+				A949B7F989CB078FA5CA7C5A /* ProfileView.swift in Sources */,
+				2FBF5F4C0308318C6191F507 /* RunActiveView.swift in Sources */,
+				AA427362057CE70189116660 /* BeamChaserApp.swift in Sources */,
+				D7420E1B2479C8377B616599 /* RunDetailView.swift in Sources */,
+				FFCDC79BA4126E2A7BF94571 /* RunHistoryView.swift in Sources */,
+				45B33AA213CF604A9352EA49 /* RunMapView.swift in Sources */,
+				CF021E30A2E8BD2D67ECFE6A /* RunModels.swift in Sources */,
+				8D2558DE5396A408ACB85C9E /* RunSessionManager.swift in Sources */,
+				A26BC7FB60A8A27486484C53 /* RunShareCardView.swift in Sources */,
+				624287CFE289ADB3EEA7FBAE /* RunnerProfile.swift in Sources */,
+				F2DCF91C1BA9AA79AB5E6C38 /* SettingsView.swift in Sources */,
+				033E0F74FD536F2126AD8F1A /* WatchConnectivityModels.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C00DE3CD92EDF1195D026AB6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				097B882FD67B2509AA0DB9BB /* HapticEngine.swift in Sources */,
+				73A101B1841824C3BCC17E4F /* HardwareControlView.swift in Sources */,
+				C2A6FD72AB9BE4DAF43248BF /* IdleView.swift in Sources */,
+				DECB37A8190BFC330B89D70D /* PauseFinishView.swift in Sources */,
+				0EA746A819F1C6CEE134ED62 /* BeamChaserWatchApp.swift in Sources */,
+				E517959A035D484096945BD5 /* RunDashboardView.swift in Sources */,
+				F6A42E494BA1959974BC9636 /* WatchConnectivityModels.swift in Sources */,
+				8C46109BBEE459949F3F27F1 /* WatchSessionManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		129DB37A4651BEF48286DC73 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 073263A651C700D3F754122E /* BeamChaser */;
+			targetProxy = 7B90CCADC4671784AC9702BE /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		3BEAAEFA928DBF3C39C19B83 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = VS723SVX24;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		4D088DF3034C28A48F9688C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BeamChaser/Resources/BeamChaser.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 65V7ZCL579;
+				INFOPLIST_FILE = BeamChaser/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.goldmine.beamchaser;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5C819A904D5F16269D14A553 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = VS723SVX24;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		66A49478BB8446C5758ACB38 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BeamChaser/Resources/BeamChaser.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 65V7ZCL579;
+				INFOPLIST_FILE = BeamChaser/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.goldmine.beamchaser;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		996F3358FA45C43B6A61020E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BeamChaserWatch/Resources/BeamChaserWatch.entitlements;
+				DEVELOPMENT_TEAM = 65V7ZCL579;
+				INFOPLIST_FILE = BeamChaserWatch/Resources/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.goldmine.beamchaser.watchapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+		C88EA909EB6ABBD6856ED1F6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BeamChaserWatch/Resources/BeamChaserWatch.entitlements;
+				DEVELOPMENT_TEAM = 65V7ZCL579;
+				INFOPLIST_FILE = BeamChaserWatch/Resources/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.goldmine.beamchaser.watchapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		6EFFAC6D9CF486E01AD90FED /* Build configuration list for PBXNativeTarget "BeamChaserWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C88EA909EB6ABBD6856ED1F6 /* Debug */,
+				996F3358FA45C43B6A61020E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A5546DECA20AC0D845AB1648 /* Build configuration list for PBXNativeTarget "BeamChaser" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4D088DF3034C28A48F9688C4 /* Debug */,
+				66A49478BB8446C5758ACB38 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BE388D12C379758D3D9C784F /* Build configuration list for PBXProject "BeamChaser" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5C819A904D5F16269D14A553 /* Debug */,
+				3BEAAEFA928DBF3C39C19B83 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F8DE9DE0819AD3A9622097BA /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 11.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2CFBF0DDD13F75E351F5BE0C /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F8DE9DE0819AD3A9622097BA /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		37EABC761D833808881FA464 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F8DE9DE0819AD3A9622097BA /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		BFD318A886523F2B9FC10A36 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F8DE9DE0819AD3A9622097BA /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		ED77922E47FB21C3EE189C75 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F8DE9DE0819AD3A9622097BA /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = FA067008A94EB3D09F838B98 /* Project object */;
+}

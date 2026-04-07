@@ -1,6 +1,6 @@
-# RunBeam 디자인 시스템
+# BeamChaser 디자인 시스템
 
-> 파일 위치: `RunBeam/Views/Components/DesignSystem.swift`
+> 파일 위치: `BeamChaser/Views/Components/DesignSystem.swift`
 
 ---
 
