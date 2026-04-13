@@ -265,7 +265,17 @@ void loop() {
 
     // 레이저 제어 (Day Mode 점멸 포함)
     if (laserEnabled) {
-        // [생략] 기존 Zone별 레이저 핀 제어 로직
+        // 낮 점멸 모드: 50ms ON / 50ms OFF = 10Hz 깜빡임
+        if (dayMode && (millis() % 100) >= 50) {
+            digitalWrite(LASER_BASE_PIN, LOW);
+            digitalWrite(LASER_SLOW_PIN, LOW);
+            digitalWrite(LASER_FAST_PIN, LOW);
+        } else {
+            // Zone에 맞는 색상만 켜기
+            digitalWrite(LASER_FAST_PIN, (currentZone == ZONE_BLUE) ? HIGH : LOW);
+            digitalWrite(LASER_BASE_PIN, (currentZone == ZONE_GREEN) ? HIGH : LOW);
+            digitalWrite(LASER_SLOW_PIN, (currentZone == ZONE_RED) ? HIGH : LOW);
+        }
     } else {
         digitalWrite(LASER_BASE_PIN, LOW);
         digitalWrite(LASER_SLOW_PIN, LOW);
