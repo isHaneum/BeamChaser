@@ -125,6 +125,16 @@ final class ActualBLEService: BLEService {
     override func setDayMode(_ enabled: Bool) {
         sendCommand(.setDayMode(enabled))
     }
+
+    override func setSensitivity(_ value: Int) {
+        self.sensitivity = value
+        sendCommand(.setSensitivity(UInt8(min(max(value, 0), 255))))
+    }
+
+    override func setCalibration(_ offset: Int) {
+        self.calibrationOffset = offset
+        sendCommand(.setCalibration(offset: Int8(min(max(offset, -90), 90))))
+    }
 }
 
 // MARK: - CBCentralManagerDelegate
@@ -274,6 +284,7 @@ extension ActualBLEService {
                 deviceStatus = status
                 deviceZone = status.zone
                 servoAngle = status.servoAngleDegrees
+                currentPitch = Int(status.currentPitch)
             }
 
             receiveBuffer.removeFirst(BLEConstants.statusPacketLength)

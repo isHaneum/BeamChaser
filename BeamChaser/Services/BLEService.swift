@@ -16,6 +16,9 @@ class BLEService: NSObject, ObservableObject {
     @Published var connectionError: String?
     @Published var deviceZone: DeviceZone = .none
     @Published var servoAngle: Int = 85
+    @Published var currentPitch: Int = 0        // 실시간 기울기 (도)
+    @Published var sensitivity: Int = 128       // 짐벌 감도 (0~255)
+    @Published var calibrationOffset: Int = 0   // 캘리브레이션 오프셋 (-90~90)
 
     // MARK: - Public API (To be overridden)
 
@@ -37,4 +40,6 @@ class BLEService: NSObject, ObservableObject {
     func stopRun() {}
     func requestStatus() {}
     func setDayMode(_ enabled: Bool) {}
+    func setSensitivity(_ value: Int) {}
+    func setCalibration(_ offset: Int) {}
 }

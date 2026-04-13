@@ -118,6 +118,31 @@ struct SettingsView: View {
                         // 레이저 캘리브레이션 섹션
                         sectionHeader("레이저 캘리브레이션")
                         VStack(spacing: 0) {
+                            // 짐벌 설정 및 실시간 수평계 (신규)
+                            NavigationLink(destination: DeviceCalibrationView()) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "gyroscope")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(RBColor.accent)
+                                        .frame(width: 32)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("짐벌 및 수평 조절")
+                                            .font(RBFont.label(15))
+                                            .foregroundStyle(RBColor.textPrimary)
+                                        Text("실시간 수평계 및 감도 설정")
+                                            .font(RBFont.caption(12))
+                                            .foregroundStyle(RBColor.textSecondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(RBColor.textTertiary)
+                                }
+                                .padding(14)
+                            }
+
+                            Divider().padding(.leading, 58).overlay(RBColor.divider)
+
                             // 사용자 키
                             HStack(spacing: 12) {
                                 Image(systemName: "figure.stand")

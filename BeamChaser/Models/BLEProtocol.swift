@@ -12,25 +12,27 @@ enum BLEConstants {
     /// 장치 이름 필터
     static let deviceNamePrefix = "BeamChaser"
 
-    /// 상태 패킷 마커
+    /// 상태 패킷 마커 (v2.0: 12바이트)
     static let statusSTX: UInt8 = 0xAA
     static let statusETX: UInt8 = 0x55
-    static let statusPacketLength = 10
+    static let statusPacketLength = 12
 }
 
 // MARK: - 장치로 보내는 커맨드
 
 struct LaserCommand {
     enum CommandType: UInt8 {
-        case laserOff      = 0x00
-        case laserOn       = 0x01
-        case setPace       = 0x02  // + 2바이트 (초/km)
-        case setAngle      = 0x03  // + 1바이트 (0~180도)
-        case setZone       = 0x04  // + 1바이트 (0=NONE,1=BLUE,2=GREEN,3=RED)
-        case startRun      = 0x05
-        case stopRun       = 0x06
-        case requestStatus = 0x07
-        case setDayMode    = 0x08  // + 1바이트 (0x00=OFF, 0x01=ON)
+        case laserOff        = 0x00
+        case laserOn         = 0x01
+        case setPace         = 0x02  // + 2바이트 (초/km)
+        case setAngle        = 0x03  // + 1바이트 (0~180도)
+        case setZone         = 0x04  // + 1바이트 (0=NONE,1=BLUE,2=GREEN,3=RED)
+        case startRun        = 0x05
+        case stopRun         = 0x06
+        case requestStatus   = 0x07
+        case setDayMode      = 0x08  // + 1바이트 (0x00=OFF, 0x01=ON)
+        case setSensitivity  = 0x09  // + 1바이트 (0~255, 짐벌 감도)
+        case setCalibration  = 0x0A  // + 1바이트 (Int8 오프셋)
     }
 
     let type: CommandType
@@ -88,6 +90,16 @@ struct LaserCommand {
     static func requestStatus() -> LaserCommand {
         LaserCommand(type: .requestStatus, payload: [])
     }
+
+    /// 짐벌 감도 설정 (0~255)
+    static func setSensitivity(_ sensitivity: UInt8) -> LaserCommand {
+        LaserCommand(type: .setSensitivity, payload: [sensitivity])
+    }
+
+    /// 캘리브레이션 오프셋 설정 (-90~90)
+    static func setCalibration(offset: Int8) -> LaserCommand {
+        LaserCommand(type: .setCalibration, payload: [UInt8(bitPattern: offset)])
+    }
 }
 
 // MARK: - 장치 Zone
@@ -117,18 +129,19 @@ enum DeviceZone: UInt8 {
     }
 }
 
-// MARK: - 장치에서 받는 상태 (10바이트 패킷)
+// MARK: - 장치에서 받는 상태 (12바이트 패킷)
 
 struct DeviceStatus {
     let batteryPercent: Int
     let isLaserActive: Bool
     let servoAngleDegrees: Int
     let zone: DeviceZone
+    let currentPitch: Int8          // 실시간 기울기 (도)
     let paceSecondsPerKm: Int       // 장치 측 현재 페이스
     let totalDistanceMeters: Int    // 장치 측 누적 거리
     let isCharging: Bool
 
-    /// STX(0xAA) battery laserOn servoAngle zone pace_H pace_L dist_H dist_L ETX(0x55)
+    /// STX(0xAA) bat laser angle zone pitch paceH paceL distH distL spare ETX(0x55)
     init(from data: Data) {
         guard data.count >= BLEConstants.statusPacketLength,
               data[0] == BLEConstants.statusSTX,
@@ -137,6 +150,7 @@ struct DeviceStatus {
             self.isLaserActive = false
             self.servoAngleDegrees = 85
             self.zone = .none
+            self.currentPitch = 0
             self.paceSecondsPerKm = 0
             self.totalDistanceMeters = 0
             self.isCharging = false
@@ -146,8 +160,9 @@ struct DeviceStatus {
         self.isLaserActive = data[2] == 0x01
         self.servoAngleDegrees = Int(data[3])
         self.zone = DeviceZone(rawValue: data[4]) ?? .none
-        self.paceSecondsPerKm = (Int(data[5]) << 8) | Int(data[6])
-        self.totalDistanceMeters = (Int(data[7]) << 8) | Int(data[8])
-        self.isCharging = false  // Arduino 배터리 충전 감지 없음
+        self.currentPitch = Int8(bitPattern: data[5])
+        self.paceSecondsPerKm = (Int(data[6]) << 8) | Int(data[7])
+        self.totalDistanceMeters = (Int(data[8]) << 8) | Int(data[9])
+        self.isCharging = false
     }
 }
