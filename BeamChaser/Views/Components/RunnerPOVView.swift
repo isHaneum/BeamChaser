@@ -3,102 +3,212 @@ import SwiftUI
 struct RunnerPOVView: View {
     @EnvironmentObject var bleService: BLEService
     @EnvironmentObject var locationService: LocationService
+    @EnvironmentObject var runSession: RunSessionManager
     
-    // 애니메이션용 상태
+    // 시뮬레이터 속도 조절용 (km/h 단위로 UI 표시)
+    @State private var mySpeedKmh: Double = 10.0
+    @State private var targetPaceMin: Int = 6
+    @State private var targetPaceSec: Int = 0
+    
+    // 도로 애니메이션 상태
     @State private var roadOffset: CGFloat = 0
     private let timer = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack {
-            // 1. 배경 (어두운 아스팔트 느낌)
-            Color(white: 0.1).ignoresSafeArea()
-            
-            // 2. 원근감이 적용된 도로
-            GeometryReader { geo in
-                ZStack {
-                    // 도로 본체
-                    Path { path in
-                        path.move(to: CGPoint(x: geo.size.width * 0.2, y: geo.size.height))
-                        path.addLine(to: CGPoint(x: geo.size.width * 0.45, y: geo.size.height * 0.4))
-                        path.addLine(to: CGPoint(x: geo.size.width * 0.55, y: geo.size.height * 0.4))
-                        path.addLine(to: CGPoint(x: geo.size.width * 0.8, y: geo.size.height))
-                    }
-                    .fill(Color(white: 0.15))
+        VStack(spacing: 0) {
+            // 1. POV 시뮬레이션 영역
+            ZStack {
+                // 아스팔트 배경
+                Color(white: 0.05).ignoresSafeArea()
+                
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let h = geo.size.height
+                    let vanishingPoint = CGPoint(x: w/2, y: h * 0.3)
                     
-                    // 움직이는 중앙 점선 (속도 반영)
-                    ForEach(0..<5) { i in
-                        let yPos = (roadOffset + CGFloat(i) * 100).truncatingRemainder(dividingBy: 500)
-                        Rectangle()
-                            .fill(Color.white.opacity(0.3))
-                            .frame(width: 4, height: 40)
-                            .scaleEffect(yPos / 500) // 멀어질수록 작아짐
-                            .position(x: geo.size.width / 2, y: yPos + geo.size.height * 0.4)
+                    // A. 도로 원근감 (Trapezoid)
+                    Path { path in
+                        path.move(to: CGPoint(x: w * 0.48, y: vanishingPoint.y))
+                        path.addLine(to: CGPoint(x: w * 0.52, y: vanishingPoint.y))
+                        path.addLine(to: CGPoint(x: w * 1.2, y: h))
+                        path.addLine(to: CGPoint(x: w * -0.2, y: h))
+                        path.closeSubpath()
                     }
+                    .fill(
+                        LinearGradient(colors: [Color(white: 0.1), Color(white: 0.2)], startPoint: .top, endPoint: .bottom)
+                    )
+                    
+                    // B. 움직이는 중앙 점선
+                    ZStack {
+                        ForEach(0..<8) { i in
+                            let progress = (roadOffset + CGFloat(i) * 60).truncatingRemainder(dividingBy: 480) / 480
+                            let currentY = vanishingPoint.y + (h - vanishingPoint.y) * progress
+                            let lineW = 4.0 * progress + 1.0
+                            let lineH = 40.0 * progress + 5.0
+                            
+                            Rectangle()
+                                .fill(Color.white.opacity(0.4))
+                                .frame(width: lineW, height: lineH)
+                                .position(x: w/2, y: currentY)
+                        }
+                    }
+                    
+                    // C. 도로 옆 경계선
+                    Path { path in
+                        path.move(to: vanishingPoint)
+                        path.addLine(to: CGPoint(x: w * -0.1, y: h))
+                        path.move(to: vanishingPoint)
+                        path.addLine(to: CGPoint(x: w * 1.1, y: h))
+                    }
+                    .stroke(Color.white.opacity(0.2), lineWidth: 2)
+                }
+                
+                // D. 레이저 포인트 (물리 엔진 기반)
+                VStack {
+                    Spacer()
+                    
+                    // 갭(m)에 따른 위치 계산
+                    // gapMeters: 양수면 내가 앞섬(레이저는 내 뒤/화면 아래), 음수면 레이저가 앞섬(화면 위)
+                    let gap = runSession.paceMaker.gapMeters
+                    let pitch = Double(bleService.currentPitch)
+                    let servo = Double(bleService.servoAngle)
+                    
+                    // 기본 위치 (3m 앞) + 갭 반영 + 짐벌 보정 미세 반영
+                    // 1m당 약 40px 이동 시뮬레이션
+                    let basePos: CGFloat = -180 
+                    let gapAdjustment = CGFloat(gap * 40)
+                    let gimbalAdjustment = CGFloat((servo - 85 - pitch) * 3)
+                    
+                    LaserDot(size: 24, glowRadius: 18)
+                        .foregroundStyle(zoneColor)
+                        .offset(y: basePos - gapAdjustment + gimbalAdjustment)
+                        .shadow(color: zoneColor, radius: 25)
+                        .animation(.interpolatingSpring(stiffness: 50, damping: 15), value: gap)
+                    
+                    Spacer().frame(height: 120)
+                }
+                
+                // 안내 텍스트
+                if !runSession.isTracking {
+                    Text("시뮬레이션을 시작하려면\n아래 '내 속도'를 높이세요")
+                        .font(RBFont.label(14))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
                 }
             }
-            .mask(Rectangle()) // 도로 영역 제한
+            .frame(height: 300)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20).stroke(RBColor.divider, lineWidth: 1)
+            )
             
-            // 3. 레이저 포인트 (지면에 맺히는 점)
-            VStack {
-                Spacer()
+            // 2. 실험실 제어 패널
+            VStack(spacing: 16) {
+                // 내 속도 조절
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label("내 러닝 속도", systemImage: "figure.run")
+                            .font(RBFont.label(13))
+                        Spacer()
+                        Text(String(format: "%.1f km/h", mySpeedKmh))
+                            .font(RBFont.metric(16))
+                            .foregroundStyle(RBColor.accent)
+                    }
+                    Slider(value: $mySpeedKmh, in: 0...20, step: 0.5)
+                        .tint(RBColor.accent)
+                        .onChange(of: mySpeedKmh) { _, newValue in
+                            updateSimulatedSpeed(newValue)
+                        }
+                }
                 
-                let pitch = Double(bleService.currentPitch)
-                let servo = Double(bleService.servoAngle)
+                Divider().overlay(RBColor.divider)
                 
-                // 보정 로직 시뮬레이션: 각도에 따라 지면에서의 거리(y) 조절
-                // 서보 각도가 85도일 때가 기준(약 3m 앞)
-                let angleAdjustment = (servo - 85) - pitch
-                let laserYOffset = CGFloat(angleAdjustment * 5)
+                // 레이저 페이스 조절
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label("레이저 목표 페이스", systemImage: "bolt.fill")
+                            .font(RBFont.label(13))
+                        Spacer()
+                        Text("\(targetPaceMin)'\(String(format: "%02d", targetPaceSec))\" /km")
+                            .font(RBFont.metric(16))
+                            .foregroundStyle(.green)
+                    }
+                    HStack(spacing: 12) {
+                        Stepper("분: \(targetPaceMin)", value: $targetPaceMin, in: 3...12)
+                        Stepper("초: \(targetPaceSec)", value: $targetPaceSec, in: 0...55, step: 5)
+                    }
+                    .font(RBFont.caption(12))
+                    .onChange(of: targetPaceMin) { updateTargetPace() }
+                    .onChange(of: targetPaceSec) { updateTargetPace() }
+                }
                 
-                LaserDot(size: 20, glowRadius: 15)
-                    .foregroundStyle(zoneColor)
-                    .offset(y: -150 + laserYOffset) // 기본 150px 위치에서 각도에 따라 이동
-                    .shadow(color: zoneColor, radius: 20)
-                    .animation(.interpolatingSpring(stiffness: 100, damping: 10), value: laserYOffset)
-                
-                Spacer().frame(height: 100)
-            }
-            
-            // 4. 상단 정보 오버레이
-            VStack {
+                // 갭 정보 요약
                 HStack {
                     VStack(alignment: .leading) {
-                        Text("SIMULATED SPEED")
-                            .font(.system(size: 10, weight: .bold))
+                        Text("거리 차이(GAP)")
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.gray)
-                        Text(String(format: "%.1f km/h", locationService.currentSpeed * 3.6))
-                            .font(RBFont.metric(24))
-                            .foregroundStyle(.white)
+                        Text(runSession.paceMaker.formattedGap)
+                            .font(RBFont.metric(22))
+                            .foregroundStyle(zoneColor)
                     }
                     Spacer()
-                    VStack(alignment: .trailing) {
-                        Text("GIMBAL STATUS")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.gray)
-                        Text(bleService.sensitivity > 0 ? "ACTIVE" : "STANDBY")
-                            .font(RBFont.label(14))
-                            .foregroundStyle(bleService.sensitivity > 0 ? .green : .orange)
+                    if runSession.paceMaker.gapMeters > 0 {
+                        Text("레이저보다 빠름")
+                            .font(RBFont.caption(11))
+                            .foregroundStyle(.blue)
+                    } else {
+                        Text("레이저를 따라가세요")
+                            .font(RBFont.caption(11))
+                            .foregroundStyle(.red)
                     }
                 }
-                .padding(20)
-                .background(.black.opacity(0.5))
-                Spacer()
+                .padding(12)
+                .background(RBColor.cardBgLight)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
+            .padding(20)
+            .background(RBColor.cardBg)
+        }
+        .onAppear {
+            setupInitialValues()
         }
         .onReceive(timer) { _ in
-            // 속도에 비례하여 도로 애니메이션 속도 조절
-            let speed = locationService.currentSpeed > 0 ? locationService.currentSpeed : 2.0 // 최소 이동감
-            roadOffset += CGFloat(speed * 2)
+            let speed = locationService.currentSpeed
+            roadOffset += CGFloat(speed * 3) // 속도에 따라 도로 흐름 속도 조절
+            
+            // 시뮬레이터 모드일 때 매 프레임마다 거리 업데이트 강제 트리거
+            if locationService.isSimulatorMode {
+                runSession.updatePace(distance: locationService.totalDistanceMeters)
+            }
         }
     }
     
     private var zoneColor: Color {
-        switch bleService.deviceZone {
-        case .blue: return .blue
-        case .green: return .green
-        case .red: return .red
-        default: return .green
+        let gap = runSession.paceMaker.gapMeters
+        if gap > 5 { return .blue }
+        if gap < -5 { return .red }
+        return .green
+    }
+    
+    private func setupInitialValues() {
+        if let target = runSession.paceMaker.target {
+            targetPaceMin = target.minutes
+            targetPaceSec = target.seconds
         }
+        mySpeedKmh = locationService.currentSpeed * 3.6
+    }
+    
+    private func updateSimulatedSpeed(_ kmh: Double) {
+        if !locationService.isTracking {
+            locationService.startTracking_simulator()
+        }
+        locationService.setSimulatorSpeedKmh(kmh)
+    }
+    
+    private func updateTargetPace() {
+        let target = PaceTarget(minutesPerKm: targetPaceMin, secondsPerKm: targetPaceSec)
+        runSession.paceMaker.start(target: target)
     }
 }
 
@@ -106,4 +216,5 @@ struct RunnerPOVView: View {
     RunnerPOVView()
         .environmentObject(MockBLEService())
         .environmentObject(LocationService())
+        .environmentObject(RunSessionManager())
 }

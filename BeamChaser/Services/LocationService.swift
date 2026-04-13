@@ -315,6 +315,21 @@ final class LocationService: NSObject, ObservableObject {
         #endif
     }
 
+    /// 시뮬레이터 속도 직접 설정 (km/h)
+    func setSimulatorSpeedKmh(_ kmh: Double) {
+        let ms = kmh / 3.6
+        simulatorSpeed = ms
+        // 속도 성분 업데이트 (북쪽 방향 고정으로 시뮬레이션)
+        simulatorVelocityX = 0
+        simulatorVelocityY = ms
+        
+        if ms > 0.05 {
+            ensureSimulatorTimer()
+        } else {
+            simulatorStop()
+        }
+    }
+
     /// 방향 버튼 → 해당 방향으로 가속 (accelerator 방식)
     func simulatorAccelerate(_ direction: SimulatorDirection) {
         guard isSimulatorMode, isTracking else { return }
