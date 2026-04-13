@@ -7,22 +7,46 @@ struct DeviceCalibrationView: View {
     
     @State private var bubbleOpacity: Double = 1.0
 
+    @State private var show3DModel = false
+
     var body: some View {
         ZStack {
             RBColor.bg.ignoresSafeArea()
 
             ScrollView {
                 VStack(spacing: 24) {
-                    // 1. 러너 시뮬레이션 시각화 (신규)
+                    // 1. 시뮬레이션 실험실 (1인칭 POV 또는 3D 모델)
                     VStack(spacing: 12) {
-                        sectionHeader("짐벌 시뮬레이션")
-                        RunnerSimulationView()
-                            .frame(height: 320)
-                            .clipShape(RoundedRectangle(cornerRadius: 24))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24)
-                                    .stroke(RBColor.divider, lineWidth: 1)
-                            )
+                        HStack {
+                            sectionHeader(show3DModel ? "3D 러너 모델" : "1인칭 러닝 시야")
+                            Spacer()
+                            Button {
+                                withAnimation(.spring()) { show3DModel.toggle() }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: show3DModel ? "eye" : "figure.run")
+                                    Text(show3DModel ? "POV로 전환" : "3D 모델로 전환")
+                                }
+                                .font(RBFont.caption(11))
+                                .foregroundStyle(RBColor.accent)
+                            }
+                        }
+                        
+                        ZStack {
+                            if show3DModel {
+                                RunnerSimulationView()
+                                    .transition(.scale.combined(with: .opacity))
+                            } else {
+                                RunnerPOVView()
+                                    .transition(.opacity)
+                            }
+                        }
+                        .frame(height: 320)
+                        .clipShape(RoundedRectangle(cornerRadius: 24))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(RBColor.divider, lineWidth: 1)
+                        )
                     }
                     .padding(.top, 10)
 
