@@ -17,7 +17,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct BeamChaserApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var bleService = BLEService()
+
+    // MARK: - State Objects (Dependency Injection)
+
+    @StateObject private var bleService: BLEService = {
+        #if targetEnvironment(simulator)
+        return MockBLEService()
+        #else
+        // 실제 기기에서도 강제로 Mock 모드를 쓰고 싶다면 이 부분을 수정 가능
+        return ActualBLEService()
+        #endif
+    }()
+
     @StateObject private var locationService = LocationService()
     @StateObject private var runSession = RunSessionManager()
     @StateObject private var profileService = ProfileService()
@@ -37,6 +48,9 @@ struct BeamChaserApp: App {
                 .environmentObject(backendService)
                 .environmentObject(phoneSession)
                 .onAppear {
+                    // 서비스 간 의존성 주입
+                    runSession.bleService = bleService
+                    
                     // Watch 연동 서비스 주입
                     phoneSession.runSession      = runSession
                     phoneSession.bleService      = bleService

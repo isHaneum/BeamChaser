@@ -11,11 +11,13 @@ final class RunSessionManager: ObservableObject {
     @Published var elapsedSeconds: TimeInterval = 0
     @Published var currentRecord: RunRecord?
     @Published var savedRecords: [RunRecord] = []
+    @Published var goalReached = false
 
     // MARK: - Sub-Engines
 
     let paceMaker = PaceMakerEngine()
     let healthKit = HealthKitService()
+    var bleService: BLEService?  // App 진입점에서 주입
 
     // MARK: - Private
 
@@ -23,17 +25,37 @@ final class RunSessionManager: ObservableObject {
     private var runStartTime: Date?
     private var pausedDuration: TimeInterval = 0
     private var pauseStartTime: Date?
+    private var cancellables = Set<AnyCancellable>()
 
-    // 저장 경로
-    private var savePath: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("run_records.json")
-    }
+    // ... (savePath 생략)
 
     // MARK: - Init
 
     init() {
         loadRecords()
+        setupPaceMakerObservation()
+    }
+
+    private func setupPaceMakerObservation() {
+        // 페이스 상태(ahead, onPace, behind) 변화를 관찰하여 BLE Zone 명령 전송
+        paceMaker.$paceStatus
+            .sink { [weak self] status in
+                guard let self = self, self.runState == .running else { return }
+                self.syncBLEZone(status)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func syncBLEZone(_ status: PaceMakerEngine.PaceStatus) {
+        guard let ble = bleService, ble.isConnected else { return }
+        let zone: DeviceZone = {
+            switch status {
+            case .ahead:  return .blue
+            case .onPace: return .green
+            case .behind: return .red
+            }
+        }()
+        ble.setZone(zone)
     }
 
     // MARK: - 러닝 제어
@@ -63,12 +85,17 @@ final class RunSessionManager: ObservableObject {
 
         if let target = target {
             paceMaker.start(target: target)
+            // BLE: 목표 페이스 전송
+            bleService?.sendTargetPace(secondsPerKm: Int(target.totalSecondsPerKm))
         }
 
         // HealthKit 운동 세션 시작
         Task {
             await healthKit.startWorkout()
         }
+
+        // BLE: 러닝 시작
+        bleService?.startRun()
 
         runState = .running
         startTimer()
@@ -79,6 +106,8 @@ final class RunSessionManager: ObservableObject {
         runState = .paused
         pauseStartTime = Date()
         stopTimer()
+        // BLE: 레이저 일시정지 (OFF)
+        bleService?.turnLaserOff()
     }
 
     func resumeRun() {
@@ -87,17 +116,20 @@ final class RunSessionManager: ObservableObject {
         pauseStartTime = nil
         runState = .running
         startTimer()
+        // BLE: 레이저 재개 (ON)
+        bleService?.turnLaserOn()
     }
 
     func finishRun(routePoints: [RoutePoint], totalDistance: Double) {
-        // 중복 호출 방지
         guard runState == .running || runState == .paused else { return }
 
         stopTimer()
         paceMaker.stop()
+        // BLE: 러닝 종료 (레이저 OFF + WAIT 모드)
+        bleService?.stopRun()
 
-        // runState를 먼저 .finished로 설정하여 onChange 핸들러의 재진입 방지
         runState = .finished
+        // ... (기존 저장 로직 유지)
 
         if var record = currentRecord {
             record.endDate = Date()
