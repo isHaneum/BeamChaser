@@ -12,11 +12,13 @@ final class RunSessionManager: ObservableObject {
     @Published var currentRecord: RunRecord?
     @Published var savedRecords: [RunRecord] = []
     @Published var goalReached = false
+    @Published var coachingAlert: String?
 
     // MARK: - Sub-Engines
 
     let paceMaker = PaceMakerEngine()
     let healthKit = HealthKitService()
+    lazy var coaching = PaceCoachingService(healthKit: healthKit)
     var bleService: BLEService?  // App 진입점에서 주입
 
     // MARK: - Private
@@ -33,17 +35,46 @@ final class RunSessionManager: ObservableObject {
 
     init() {
         loadRecords()
-        setupPaceMakerObservation()
+        setupObservations()
     }
 
-    private func setupPaceMakerObservation() {
-        // 페이스 상태(ahead, onPace, behind) 변화를 관찰하여 BLE Zone 명령 전송
+    private func setupObservations() {
+        // 1. 페이스 상태(ahead, onPace, behind) 변화를 관찰하여 BLE Zone 명령 전송
         paceMaker.$paceStatus
             .sink { [weak self] status in
                 guard let self = self, self.runState == .running else { return }
                 self.syncBLEZone(status)
             }
             .store(in: &cancellables)
+            
+        // 2. 심박수 관찰 -> 지능형 감속 (Safety Valve)
+        healthKit.$currentHeartRate
+            .sink { [weak self] bpm in
+                guard let self = self, self.runState == .running, bpm > 0 else { return }
+                self.checkSafetyAndCoaching(bpm: bpm)
+            }
+            .store(in: &cancellables)
+            
+        // 3. 엔진의 적응 상태 관찰 -> 사용자 알림
+        paceMaker.$adaptiveState
+            .sink { [weak self] state in
+                guard let self = self, self.runState == .running else { return }
+                if state == .waiting {
+                    self.coachingAlert = "러너가 뒤처졌습니다. 레이저가 속도를 늦춰 기다립니다."
+                } else if state == .recovering {
+                    self.coachingAlert = "러너가 복귀했습니다. 다시 페이스를 올립니다."
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func checkSafetyAndCoaching(bpm: Double) {
+        if bpm > 180 { // 심각한 과부하
+            if paceMaker.adaptiveState != .waiting {
+                // 심박수 초과 시 즉각 알림 (속도 제어는 PaceMakerEngine 확장 시 추가)
+                self.coachingAlert = "심박수가 매우 높습니다! 안전을 위해 속도를 늦추세요."
+            }
+        }
     }
 
     private func syncBLEZone(_ status: PaceMakerEngine.PaceStatus) {

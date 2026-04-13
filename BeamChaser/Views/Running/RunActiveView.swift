@@ -26,6 +26,34 @@ struct RunActiveView: View {
             if !didFinish {
                 VStack(spacing: 0) {
                     topBar
+                    
+                    // 코칭 알림 배너
+                    if let alert = runSession.coachingAlert {
+                        Text(alert)
+                            .font(RBFont.label(14))
+                            .foregroundStyle(.white)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.orange.opacity(0.9))
+                                    .shadow(radius: 5)
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .onAppear {
+                                // 4초 후 알림 숨김
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                                    if runSession.coachingAlert == alert {
+                                        withAnimation(.easeInOut) {
+                                            runSession.coachingAlert = nil
+                                        }
+                                    }
+                                }
+                            }
+                    }
+                    
                     Spacer()
                 }
             }
