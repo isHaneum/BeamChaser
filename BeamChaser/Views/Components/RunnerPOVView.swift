@@ -79,11 +79,15 @@ struct RunnerPOVView: View {
                     let gapAdjustment = CGFloat(gap * 40)
                     let gimbalAdjustment = CGFloat((servo - 85 - pitch) * 3)
                     
-                    LaserDot(size: 24, glowRadius: 18)
-                        .foregroundStyle(zoneColor)
-                        .offset(y: basePos - gapAdjustment + gimbalAdjustment)
-                        .shadow(color: zoneColor, radius: 25)
-                        .animation(.interpolatingSpring(stiffness: 50, damping: 15), value: gap)
+                    let isLaserOn = bleService.deviceStatus?.isLaserActive ?? true
+                    
+                    if isLaserOn {
+                        LaserDot(size: 24, glowRadius: 18)
+                            .foregroundStyle(zoneColor)
+                            .offset(y: basePos - gapAdjustment + gimbalAdjustment)
+                            .shadow(color: zoneColor, radius: 25)
+                            .animation(.interpolatingSpring(stiffness: 50, damping: 15), value: gap)
+                    }
                     
                     Spacer().frame(height: 120)
                 }
