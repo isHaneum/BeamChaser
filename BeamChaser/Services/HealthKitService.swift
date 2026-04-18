@@ -26,11 +26,17 @@ final class HealthKitService: ObservableObject {
     private var runningSpeedQuery: HKAnchoredObjectQuery?
     private var workoutStartDate: Date?
 
+    init() {
+        refreshAuthorizationStatus()
+    }
+
     // MARK: - HealthKit 타입
 
     private let typesToShare: Set<HKSampleType> = [
         HKQuantityType.workoutType(),
         HKSeriesType.workoutRoute(),
+        HKQuantityType(.distanceWalkingRunning),
+        HKQuantityType(.activeEnergyBurned),
     ]
 
     private let typesToRead: Set<HKObjectType> = [
@@ -50,6 +56,28 @@ final class HealthKitService: ObservableObject {
 
     // MARK: - 권한 요청
 
+    func refreshAuthorizationStatus() {
+        guard Self.isAvailable else {
+            isAuthorized = false
+            authorizationError = "이 기기에서는 건강 데이터를 사용할 수 없습니다."
+            return
+        }
+
+        let workoutStatus = healthStore.authorizationStatus(for: HKQuantityType.workoutType())
+        isAuthorized = workoutStatus == .sharingAuthorized
+
+        if workoutStatus == .sharingAuthorized {
+            authorizationError = nil
+            Task {
+                await fetchHeight()
+            }
+        } else if workoutStatus == .sharingDenied {
+            authorizationError = "건강 데이터 권한이 꺼져 있어 운동 기록이 건강 앱과 동기화되지 않아요."
+        } else {
+            authorizationError = nil
+        }
+    }
+
     func requestAuthorization() async {
         guard Self.isAvailable else {
             authorizationError = "이 기기에서는 건강 데이터를 사용할 수 없습니다."
@@ -58,12 +86,16 @@ final class HealthKitService: ObservableObject {
 
         do {
             try await healthStore.requestAuthorization(toShare: typesToShare, read: typesToRead)
-            isAuthorized = true
-            authorizationError = nil
-            await fetchHeight()
+            refreshAuthorizationStatus()
+            if isAuthorized {
+                authorizationError = nil
+                await fetchHeight()
+            } else {
+                authorizationError = "건강 앱에서 RunBeam의 운동 기록 권한을 켜야 거리, 칼로리, 심박수 연동이 정상 동작합니다."
+            }
         } catch {
-            // HealthKit entitlement 없으면 여기서 실패 — 크래시 대신 비활성화
-            authorizationError = nil
+            // HealthKit entitlement 없거나 시스템 권한이 막힌 경우
+            authorizationError = "건강 권한 요청에 실패했어요. 앱의 HealthKit capability와 iPhone 건강 권한 설정을 확인해주세요."
             isAuthorized = false
             print("HealthKit 권한 요청 불가 (entitlement 미설정): \(error.localizedDescription)")
         }

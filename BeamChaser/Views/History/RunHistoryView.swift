@@ -33,10 +33,10 @@ struct RunHistoryView: View {
                                 }
                             }
                             .padding(.horizontal, 16)
-                            .padding(.bottom, 20)
                         }
                         .padding(.top, 8)
                     }
+                    .contentMargins(.bottom, 130, for: .scrollContent)
                 }
             }
             .navigationTitle("러닝 기록")
@@ -70,12 +70,14 @@ struct RunHistoryView: View {
                     Text("총 거리")
                         .font(RBFont.caption(9))
                         .foregroundStyle(RBColor.textTertiary)
-                    Text(String(format: "%.1f", totalDistance / 1000.0))
-                        .font(RBFont.metric(22))
-                        .foregroundStyle(RBColor.textPrimary)
-                    Text("km")
-                        .font(RBFont.caption(10))
-                        .foregroundStyle(RBColor.textSecondary)
+                    HStack(alignment: .lastTextBaseline, spacing: 1) {
+                        Text(String(format: "%.1f", totalDistance / 1000.0))
+                            .font(RBFont.metric(22))
+                            .foregroundStyle(RBColor.textPrimary)
+                        Text("km")
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(RBColor.textSecondary)
+                    }
                 }
                 .frame(maxWidth: .infinity)
 

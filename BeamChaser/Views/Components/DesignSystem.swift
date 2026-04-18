@@ -24,6 +24,44 @@ enum AppearanceMode: String, CaseIterable {
     }
 }
 
+// MARK: - 앱 언어 모드 관리
+
+enum AppLanguage: String, CaseIterable {
+    case system
+    case korean
+    case english
+
+    var displayName: String {
+        switch self {
+        case .system: return "시스템"
+        case .korean: return "한국어"
+        case .english: return "English"
+        }
+    }
+
+    var locale: Locale {
+        switch self {
+        case .system:
+            if Locale.preferredLanguages.first?.hasPrefix("en") == true {
+                return Locale(identifier: "en")
+            }
+            return Locale(identifier: "ko_KR")
+        case .korean:
+            return Locale(identifier: "ko_KR")
+        case .english:
+            return Locale(identifier: "en")
+        }
+    }
+
+    var isEnglish: Bool {
+        locale.identifier.hasPrefix("en")
+    }
+
+    func text(_ korean: String, _ english: String) -> String {
+        isEnglish ? english : korean
+    }
+}
+
 // MARK: - 런빔 디자인 시스템
 
 enum RBColor {

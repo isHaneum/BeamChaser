@@ -1,6 +1,6 @@
 name: BeamChaser
 options:
-  bundleIdPrefix: com.goldmine
+  bundleIdPrefix: com.haneum
   deploymentTarget:
     iOS: "17.0"
     watchOS: "10.0"
@@ -10,7 +10,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5"
-    DEVELOPMENT_TEAM: "VS723SVX24"
+    DEVELOPMENT_TEAM: "65V7ZCL579"
 
 packages:
   FirebaseSDK:
@@ -26,6 +26,9 @@ targets:
         excludes:
           - "**/*.c"
           - "**/*.ino"
+          - "GoogleService-Info.plist"
+          - "Resources/GoogleService-Info (1).plist"
+          - "Resources/GoogleService-Info (2).plist"
       - path: Shared
     dependencies:
       - package: FirebaseSDK
@@ -55,7 +58,7 @@ targets:
           - location
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.beamchaser
+        PRODUCT_BUNDLE_IDENTIFIER: com.haneum.beamchaser
     entitlements:
       path: BeamChaser/Resources/BeamChaser.entitlements
     attributes:
@@ -65,6 +68,10 @@ targets:
         com.apple.BackgroundModes.bluetooth-central:
           enabled: true
         com.apple.BackgroundModes.location:
+          enabled: true
+        com.apple.HealthKit:
+          enabled: true
+        com.apple.SignInWithApple:
           enabled: true
 
   BeamChaserWatch:
@@ -82,7 +89,7 @@ targets:
       path: BeamChaserWatch/Resources/Info.plist
       properties:
         WKApplication: true
-        WKCompanionAppBundleIdentifier: com.goldmine.beamchaser
+        WKCompanionAppBundleIdentifier: com.haneum.beamchaser
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationPortrait
@@ -90,7 +97,7 @@ targets:
         NSHealthUpdateUsageDescription: "러닝 운동 기록을 저장하기 위해 건강 데이터 쓰기가 필요합니다."
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.goldmine.beamchaser.watchapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.haneum.beamchaser.watchapp
         TARGETED_DEVICE_FAMILY: "4"
     entitlements:
       path: BeamChaserWatch/Resources/BeamChaserWatch.entitlements

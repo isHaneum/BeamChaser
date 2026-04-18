@@ -81,31 +81,64 @@ struct PaceSetupView: View {
                         intervalSetupContent
                     }
 
-                    Spacer(minLength: 100)
+                    Spacer(minLength: 20)
                 }
+                .padding(.bottom, 28)
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [RBColor.bg.opacity(0), RBColor.bg.opacity(0.92), RBColor.bg],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 28)
 
-            // 플로팅 시작 버튼
-            VStack {
-                Spacer()
-                RBPrimaryButton("러닝 시작", icon: "figure.run") {
-                    startRun()
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(setupTab == .interval ? "인터벌 준비" : "러닝 준비 완료")
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(RBColor.textTertiary)
+                            .tracking(1)
+
+                        Text(startSummaryTitle)
+                            .font(RBFont.label(15))
+                            .foregroundStyle(RBColor.textPrimary)
+
+                        if !startSummaryItems.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(startSummaryItems, id: \.self) { item in
+                                        Text(item)
+                                            .font(RBFont.caption(11))
+                                            .foregroundStyle(RBColor.textSecondary)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 8)
+                                            .background(RBColor.cardBgLight)
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(RBColor.cardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                    RBPrimaryButton(canStartRun ? "이 설정으로 시작" : "인터벌을 선택하세요", icon: "figure.run") {
+                        startRun()
+                    }
+                    .opacity(canStartRun ? 1 : 0.5)
+                    .disabled(!canStartRun)
                 }
                 .navigationDestination(isPresented: $navigateToRun) {
                     RunActiveView()
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 8)
-                .background(
-                    LinearGradient(
-                        colors: [RBColor.bg.opacity(0), RBColor.bg, RBColor.bg],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 100)
-                    .allowsHitTesting(false),
-                    alignment: .bottom
-                )
+                .padding(.top, 6)
+                .padding(.bottom, 12)
+                .background(RBColor.bg)
             }
         }
         .navigationTitle("")
@@ -156,37 +189,34 @@ struct PaceSetupView: View {
                 }
                 // OFF 버튼 행
                 HStack(spacing: 8) {
-                    goalOffButton(card: .distance, isOn: distanceGoalEnabled, width: boxSize)
-                    goalOffButton(card: .time, isOn: timeGoalEnabled, width: boxSize)
-                    goalOffButton(card: .pace, isOn: paceGoalEnabled, width: boxSize)
+                    goalStateButton(card: .distance, isOn: distanceGoalEnabled, width: boxSize)
+                    goalStateButton(card: .time, isOn: timeGoalEnabled, width: boxSize)
+                    goalStateButton(card: .pace, isOn: paceGoalEnabled, width: boxSize)
                 }
             }
         }
-        .frame(height: (UIScreen.main.bounds.width - 56) / 3 + 36)  // 정사각형 + OFF 버튼 높이
+        .frame(height: (UIScreen.main.bounds.width - 56) / 3 + 42)  // 정사각형 + 상태 버튼 높이
         .animation(.spring(response: 0.3), value: expandedCard)
     }
 
-    private func goalOffButton(card: GoalCard, isOn: Bool, width: CGFloat) -> some View {
+    private func goalStateButton(card: GoalCard, isOn: Bool, width: CGFloat) -> some View {
         Button {
             withAnimation(.spring(response: 0.3)) {
-                switch card {
-                case .distance: distanceGoalEnabled = false
-                case .time: timeGoalEnabled = false
-                case .pace: paceGoalEnabled = false
-                }
-                if expandedCard == card { expandedCard = nil }
+                toggleGoal(card)
             }
         } label: {
-            Text("OFF")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(isOn ? RBColor.textSecondary : RBColor.textTertiary.opacity(0.5))
-                .frame(width: width, height: 28)
-                .background(isOn ? RBColor.cardBgLight : RBColor.cardBg.opacity(0.5))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            Text(isOn ? "ON" : "OFF")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(isOn ? .white : RBColor.textSecondary)
+                .frame(width: width, height: 34)
+                .background(isOn ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(RBColor.cardBgLight))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(isOn ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.8), lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
-        .opacity(isOn ? 1 : 0.4)
-        .disabled(!isOn)
     }
 
     private func goalBox(icon: String, label: String, value: String, unit: String, isOn: Bool, card: GoalCard, size: CGFloat) -> some View {
@@ -260,6 +290,32 @@ struct PaceSetupView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func toggleGoal(_ card: GoalCard) {
+        switch card {
+        case .distance:
+            distanceGoalEnabled.toggle()
+            if distanceGoalEnabled {
+                expandedCard = .distance
+            } else if expandedCard == .distance {
+                expandedCard = nil
+            }
+        case .time:
+            timeGoalEnabled.toggle()
+            if timeGoalEnabled {
+                expandedCard = .time
+            } else if expandedCard == .time {
+                expandedCard = nil
+            }
+        case .pace:
+            paceGoalEnabled.toggle()
+            if paceGoalEnabled {
+                expandedCard = .pace
+            } else if expandedCard == .pace {
+                expandedCard = nil
+            }
+        }
     }
 
     // MARK: - 펼쳐진 설정 패널
@@ -769,9 +825,55 @@ struct PaceSetupView: View {
         return RBColor.success                          // 쉬운 페이스
     }
 
+    private var canStartRun: Bool {
+        if setupTab == .interval {
+            return selectedInterval != nil
+        }
+        return true
+    }
+
+    private var startSummaryTitle: String {
+        if setupTab == .interval {
+            return selectedInterval?.name ?? "시작할 인터벌 프로그램을 선택해 주세요"
+        }
+
+        if !distanceGoalEnabled && !timeGoalEnabled && !paceGoalEnabled {
+            return "자유 러닝으로 바로 시작합니다"
+        }
+
+        return "선택한 목표와 페이스로 러닝을 시작합니다"
+    }
+
+    private var startSummaryItems: [String] {
+        if setupTab == .interval {
+            guard let selectedInterval else { return [] }
+            return [
+                String(format: "%.1fkm", selectedInterval.totalDistanceKm),
+                "\(selectedInterval.segments.count)개 구간",
+            ]
+        }
+
+        var items: [String] = []
+        if distanceGoalEnabled {
+            items.append(String(format: "거리 %.1fkm", targetDistanceKm))
+        }
+        if timeGoalEnabled {
+            items.append("시간 \(targetTimeMinutes)분")
+        }
+        if paceGoalEnabled {
+            items.append("페이스 \(paceMinutes)'\(String(format: "%02d", paceSeconds))\"/km")
+        }
+        if items.isEmpty {
+            items.append("자유 러닝")
+        }
+        return items
+    }
+
     // MARK: - Start Run
 
     private func startRun() {
+        guard canStartRun else { return }
+
         if setupTab == .interval, let interval = selectedInterval {
             guard let first = interval.segments.first else { return }
             let target = PaceTarget(minutesPerKm: first.paceMinutes, secondsPerKm: first.paceSeconds)
@@ -786,7 +888,11 @@ struct PaceSetupView: View {
             }
             let goal: RunGoal
             if distanceGoalEnabled {
-                goal = RunGoal(type: .distance, targetDistanceKm: targetDistanceKm, targetTimeMinutes: timeGoalEnabled ? targetTimeMinutes : nil)
+                if timeGoalEnabled {
+                    goal = RunGoal(type: .combined, targetDistanceKm: targetDistanceKm, targetTimeMinutes: targetTimeMinutes)
+                } else {
+                    goal = RunGoal(type: .distance, targetDistanceKm: targetDistanceKm, targetTimeMinutes: nil)
+                }
             } else if timeGoalEnabled {
                 goal = RunGoal(type: .time, targetDistanceKm: nil, targetTimeMinutes: targetTimeMinutes)
             } else {

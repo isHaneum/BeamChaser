@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AVFoundation
 
 /// 러닝 세션 매니저 — 전체 러닝 라이프사이클 관리
 @MainActor
@@ -29,7 +30,10 @@ final class RunSessionManager: ObservableObject {
     private var pauseStartTime: Date?
     private var cancellables = Set<AnyCancellable>()
 
-    // ... (savePath 생략)
+    private var savePath: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("run_records.json")
+    }
 
     // MARK: - Init
 
@@ -110,6 +114,7 @@ final class RunSessionManager: ObservableObject {
         self.runGoal = goal
         self.intervalProgram = intervalProgram
         self.currentIntervalIndex = 0
+        goalReached = false
         runStartTime = Date()
         pausedDuration = 0
         elapsedSeconds = 0
@@ -253,13 +258,17 @@ final class RunSessionManager: ObservableObject {
                 if let targetMin = goal.targetTimeMinutes, elapsedSeconds >= Double(targetMin * 60) {
                     goalReached = true
                 }
+            case .combined:
+                let reachedDistance = goal.targetDistanceKm.map { distance / 1000.0 >= $0 } ?? false
+                let reachedTime = goal.targetTimeMinutes.map { elapsedSeconds >= Double($0 * 60) } ?? false
+                if reachedDistance || reachedTime {
+                    goalReached = true
+                }
             case .none:
                 break
             }
         }
     }
-
-    @Published var goalReached = false
 
     // MARK: - Timer
 
@@ -305,5 +314,171 @@ final class RunSessionManager: ObservableObject {
     func deleteRecord(_ record: RunRecord) {
         savedRecords.removeAll { $0.id == record.id }
         saveRecords()
+    }
+
+    func clearAllSavedRecords() {
+        resetSession()
+        savedRecords.removeAll()
+        do {
+            if FileManager.default.fileExists(atPath: savePath.path) {
+                try FileManager.default.removeItem(at: savePath)
+            }
+        } catch {
+            print("기록 파일 삭제 실패: \(error)")
+        }
+    }
+}
+
+@MainActor
+final class VoiceGuideService: NSObject, ObservableObject {
+
+    private enum PaceAlertDirection {
+        case ahead
+        case behind
+    }
+
+    private let synthesizer = AVSpeechSynthesizer()
+    private var lastDistanceCheckpoint = 0
+    private var lastPaceAlertDate: Date?
+    private var lastPaceAlertDirection: PaceAlertDirection?
+
+    override init() {
+        super.init()
+    }
+
+    func reset() {
+        lastDistanceCheckpoint = 0
+        lastPaceAlertDate = nil
+        lastPaceAlertDirection = nil
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+    }
+
+    func announceRunStart() {
+        guard isEnabled else {
+            reset()
+            return
+        }
+        reset()
+        if countdownAlertEnabled {
+            speak("3, 2, 1, 러닝을 시작합니다.")
+        } else {
+            speak("러닝을 시작합니다.")
+        }
+    }
+
+    func announceRunFinish() {
+        guard isEnabled else {
+            reset()
+            return
+        }
+        speak("러닝을 종료합니다.")
+        lastDistanceCheckpoint = 0
+        lastPaceAlertDate = nil
+        lastPaceAlertDirection = nil
+    }
+
+    func announceGoalReached() {
+        guard isEnabled else { return }
+        speak("설정한 목표를 달성했습니다.")
+    }
+
+    func handleDistanceUpdate(totalDistanceMeters: Double, currentPaceSecondsPerKm: Double) {
+        guard isEnabled else { return }
+
+        let interval = distanceIntervalKm
+        guard interval > 0 else { return }
+
+        let totalDistanceKm = totalDistanceMeters / 1000.0
+        let checkpoint = Int(floor(totalDistanceKm / interval))
+        guard checkpoint > lastDistanceCheckpoint else { return }
+
+        lastDistanceCheckpoint = checkpoint
+        let announcedDistance = Double(checkpoint) * interval
+        let distanceText: String
+        if announcedDistance.truncatingRemainder(dividingBy: 1) == 0 {
+            distanceText = "\(Int(announcedDistance))킬로미터"
+        } else {
+            distanceText = String(format: "%.1f킬로미터", announcedDistance)
+        }
+
+        let paceText = RunRecord.formatPace(currentPaceSecondsPerKm)
+        speak("\(distanceText) 경과, 현재 페이스 \(paceText) 입니다.")
+    }
+
+    func handleGapUpdate(gapMeters: Double) {
+        guard isEnabled else { return }
+
+        let threshold = paceAlertThresholdMeters
+        guard threshold > 0, abs(gapMeters) >= threshold else { return }
+
+        let direction: PaceAlertDirection = gapMeters >= 0 ? .ahead : .behind
+        let now = Date()
+        let shouldSpeak: Bool
+
+        if direction != lastPaceAlertDirection {
+            shouldSpeak = true
+        } else if let lastPaceAlertDate {
+            shouldSpeak = now.timeIntervalSince(lastPaceAlertDate) >= 18
+        } else {
+            shouldSpeak = true
+        }
+
+        guard shouldSpeak else { return }
+
+        lastPaceAlertDate = now
+        lastPaceAlertDirection = direction
+
+        let meters = Int(abs(gapMeters).rounded())
+        switch direction {
+        case .ahead:
+            speak("목표보다 \(meters)미터 앞서고 있습니다.")
+        case .behind:
+            speak("목표보다 \(meters)미터 뒤처지고 있습니다.")
+        }
+    }
+
+    private var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "voiceGuide")
+    }
+
+    private var distanceIntervalKm: Double {
+        UserDefaults.standard.double(forKey: "voiceDistanceInterval")
+    }
+
+    private var paceAlertThresholdMeters: Double {
+        let stored = UserDefaults.standard.double(forKey: "voicePaceAlertThreshold")
+        return stored > 0 ? stored : 15.0
+    }
+
+    private var countdownAlertEnabled: Bool {
+        if UserDefaults.standard.object(forKey: "voiceCountdownAlert") == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "voiceCountdownAlert")
+    }
+
+    private func configureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers, .mixWithOthers])
+        try? session.setActive(true)
+    }
+
+    private func speak(_ message: String) {
+        guard !message.isEmpty else { return }
+
+        configureAudioSession()
+
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .word)
+        }
+
+        let utterance = AVSpeechUtterance(string: message)
+        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
+        utterance.rate = 0.46
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 0.9
+        synthesizer.speak(utterance)
     }
 }

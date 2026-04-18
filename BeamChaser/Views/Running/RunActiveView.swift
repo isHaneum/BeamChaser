@@ -6,6 +6,7 @@ struct RunActiveView: View {
     @EnvironmentObject var locationService: LocationService
     @EnvironmentObject var bleService: BLEService
     @EnvironmentObject var healthKit: HealthKitService
+    @EnvironmentObject var voiceGuide: VoiceGuideService
     @Environment(\.dismiss) private var dismiss
 
     @State private var showFinishAlert = false
@@ -100,6 +101,7 @@ struct RunActiveView: View {
             locationService.startTracking()
             #endif
             // BLE 로직은 runSession.startRun() 호출 시 내부에서 처리됨
+            voiceGuide.announceRunStart()
         }
         .onDisappear {
             if !didFinish {
@@ -109,6 +111,7 @@ struct RunActiveView: View {
                 // BLE 종료 로직은 resetSession에서 처리 가능하도록 보완 권장
                 locationService.reset()
                 Task { await runSession.healthKit.discardWorkout() }
+                voiceGuide.reset()
             }
             // 항상 세션 초기화 (다음 러닝을 위해)
             runSession.resetSession()
@@ -116,6 +119,14 @@ struct RunActiveView: View {
         .onChange(of: locationService.totalDistanceMeters) { _, newValue in
             guard runSession.runState == .running, !didFinish else { return }
             runSession.updatePace(distance: newValue)
+
+            let currentPace = newValue > 0
+                ? runSession.elapsedSeconds / (newValue / 1000.0)
+                : 0
+            voiceGuide.handleDistanceUpdate(
+                totalDistanceMeters: newValue,
+                currentPaceSecondsPerKm: currentPace
+            )
         }
         .onChange(of: locationService.routePoints.count) { _, _ in
             guard runSession.runState == .running, !didFinish else { return }
@@ -123,6 +134,10 @@ struct RunActiveView: View {
             if let location = locationService.currentLocation {
                 runSession.healthKit.addRouteData([location])
             }
+        }
+        .onChange(of: runSession.paceMaker.gapMeters) { _, newGap in
+            guard runSession.runState == .running, !didFinish else { return }
+            voiceGuide.handleGapUpdate(gapMeters: newGap)
         }
         .alert("러닝을 종료할까요?", isPresented: $showFinishAlert) {
             Button("계속 달리기", role: .cancel) {}
@@ -139,6 +154,7 @@ struct RunActiveView: View {
         .onChange(of: runSession.goalReached) { _, reached in
             if reached {
                 showGoalReachedAlert = true
+                voiceGuide.announceGoalReached()
             }
         }
     }
@@ -235,6 +251,16 @@ struct RunActiveView: View {
             case .time:
                 guard let targetMin = goal.targetTimeMinutes, targetMin > 0 else { return 0 }
                 return min(1.0, runSession.elapsedSeconds / Double(targetMin * 60))
+            case .combined:
+                let distanceProgress: Double = {
+                    guard let targetKm = goal.targetDistanceKm, targetKm > 0 else { return 0 }
+                    return min(1.0, locationService.totalDistanceMeters / 1000.0 / targetKm)
+                }()
+                let timeProgress: Double = {
+                    guard let targetMin = goal.targetTimeMinutes, targetMin > 0 else { return 0 }
+                    return min(1.0, runSession.elapsedSeconds / Double(targetMin * 60))
+                }()
+                return max(distanceProgress, timeProgress)
             case .none: return 0
             }
         }()
@@ -725,6 +751,7 @@ struct RunActiveView: View {
     private func finishRun() {
         guard !didFinish else { return }
         didFinish = true
+        voiceGuide.announceRunFinish()
         // 1. 시뮬레이터 이동 중지
         locationService.simulatorStop()
         // 2. 기록 캡처 (reset 전에 값 복사)
@@ -754,5 +781,6 @@ struct RunActiveView: View {
             .environmentObject(LocationService())
             .environmentObject(BLEService())
             .environmentObject(HealthKitService())
+            .environmentObject(VoiceGuideService())
     }
 }

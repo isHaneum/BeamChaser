@@ -84,12 +84,20 @@ final class LocationService: NSObject, ObservableObject {
         locationManager.distanceFilter = 5  // 5m마다 업데이트
         locationManager.activityType = .fitness
         locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.showsBackgroundLocationIndicator = true
     }
 
     // MARK: - Public API
 
     func requestPermission() {
-        locationManager.requestWhenInUseAuthorization()
+        switch authorizationStatus {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse:
+            locationManager.requestAlwaysAuthorization()
+        default:
+            break
+        }
     }
 
     /// 홈 화면에서 현위치 1회 갱신 (트래킹 없이)

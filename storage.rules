@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── 헬퍼 함수 ─────────────────────────────────────────
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // 이미지 파일인지 확인 (JPEG/PNG/WebP)
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    // 업로드 크기 제한 (5 MB)
+    function isWithinSizeLimit() {
+      return request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    // feed_photos/{uid}/{filename} ────────────────────────
+    // 피드 게시글 첨부 이미지
+    match /feed_photos/{uid}/{allPaths=**} {
+      // 본인 이미지만 읽기/쓰기 가능, 타인도 읽기 허용 (피드 표시)
+      allow read: if isAuth();
+      allow write: if isAuth()
+        && request.auth.uid == uid
+        && isImage()
+        && isWithinSizeLimit();
+    }
+
+    // profile_photos/{uid}/{filename} ─────────────────────
+    // 프로필 사진 (향후 확장용)
+    match /profile_photos/{uid}/{allPaths=**} {
+      allow read: if isAuth();
+      allow write: if isAuth()
+        && request.auth.uid == uid
+        && isImage()
+        && isWithinSizeLimit();
+    }
+
+    // 그 외 경로는 모두 차단
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

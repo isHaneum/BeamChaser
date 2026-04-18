@@ -1,0 +1,127 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── 헬퍼 함수 ──────────────────────────────────────────
+
+    // 요청자가 로그인된 사용자인지 확인
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // 요청자가 해당 uid 와 동일한지 확인
+    function isSelf(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    // 문서 소유자(authorId 필드)인지 확인
+    function isAuthor() {
+      return isAuth() && request.auth.uid == resource.data.authorId;
+    }
+
+    // users/{uid} ─────────────────────────────────────────
+    match /users/{uid} {
+      // 본인 프로필만 읽기/쓰기. 커뮤니티 기능상 다른 유저 프로필 읽기도 허용.
+      allow read: if isAuth();
+      allow create: if isSelf(uid);
+      allow update: if isSelf(uid)
+        // 허용된 필드만 업데이트 가능 (권한 상승 차단)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['uid', 'createdAt', 'email']);
+      allow delete: if isSelf(uid);
+
+      // 친구 링크 서브컬렉션
+      match /friends/{friendId} {
+        allow read: if isSelf(uid);
+        // 본인 친구 목록에만 쓸 수 있음
+        allow write: if isSelf(uid);
+      }
+
+      // 차단 목록 서브컬렉션
+      match /blockedUsers/{blockedUid} {
+        allow read: if isSelf(uid);
+        allow write: if isSelf(uid);
+      }
+    }
+
+    // runs/{runId} ────────────────────────────────────────
+    match /runs/{runId} {
+      // 본인 런 기록만 읽기/쓰기
+      allow read: if isAuth() && request.auth.uid == resource.data.userId;
+      allow create: if isAuth() && request.auth.uid == request.resource.data.userId;
+      allow update: if isAuth() && request.auth.uid == resource.data.userId;
+      allow delete: if isAuth() && request.auth.uid == resource.data.userId;
+    }
+
+    // matePosts/{postId} ──────────────────────────────────
+    match /matePosts/{postId} {
+      // 로그인 사용자 누구나 읽기 가능
+      allow read: if isAuth();
+      // 본인만 새 글 작성 (authorId == 요청자 uid)
+      allow create: if isAuth()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.location is string
+        && request.resource.data.location.size() > 0
+        && request.resource.data.location.size() <= 200
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 2000
+        && request.resource.data.currentMembers is int
+        && request.resource.data.maxMembers is int
+        && request.resource.data.maxMembers >= 1
+        && request.resource.data.currentMembers >= 1
+        && request.resource.data.currentMembers <= request.resource.data.maxMembers
+        && request.resource.data.joinedUserIds is list;
+      // 참여/탈퇴 (joinedUserIds, currentMembers 만 수정 가능)
+      // 또는 작성자 본인이 전체 수정
+      allow update: if isAuth() && (
+        isAuthor()
+        || (
+          request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['joinedUserIds', 'currentMembers'])
+        )
+      );
+      allow delete: if isAuthor();
+    }
+
+    // feedPosts/{postId} ──────────────────────────────────
+    match /feedPosts/{postId} {
+      // 로그인 사용자 누구나 읽기 가능
+      allow read: if isAuth();
+      // 본인만 새 피드 작성
+      allow create: if isAuth()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.content is string
+        && request.resource.data.content.size() <= 1000;
+      // 좋아요(likedUserIds)와 댓글(comments) 만 타인이 수정 가능
+      // 작성자 본인은 전체 수정 가능
+      allow update: if isAuth() && (
+        isAuthor()
+        || request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['likedUserIds', 'comments'])
+      );
+      allow delete: if isAuthor();
+    }
+
+    // reports/{reportId} ──────────────────────────────────
+    // 사용자가 신고를 제출할 수 있고, 읽기는 본인 신고만 가능
+    match /reports/{reportId} {
+      allow read: if isAuth() && request.auth.uid == resource.data.reporterId;
+      allow create: if isAuth()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.targetType in ['feedPost', 'matePost', 'user']
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() <= 500;
+      // 신고는 수정/삭제 불가 (관리자만 처리)
+      allow update, delete: if false;
+    }
+
+    // 그 외 모든 컬렉션은 접근 차단
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

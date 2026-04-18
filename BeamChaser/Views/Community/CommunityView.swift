@@ -1,40 +1,51 @@
 import SwiftUI
 import MapKit
 import PhotosUI
+import UIKit
 
 // MARK: - Community Data Models
 
 struct RunnerPost: Identifiable {
-    let id = UUID()
+    let id: String
+    let authorId: String
     let authorName: String
     let authorLevel: RunnerLevel
     let content: String
     let distanceKm: Double?
     let paceFormatted: String?
-    let timeAgo: String
+    let createdAt: Date
     var likes: Int
     var comments: [PostComment]
     let type: PostType
     var isLiked: Bool = false
-    var photoData: Data? = nil
+    var photoURL: String? = nil
 
-    enum PostType {
+    enum PostType: String {
         case runResult
         case mateFinding
         case freeBoard
     }
+
+    var timeAgo: String {
+        CommunityFormatter.relativeString(from: createdAt)
+    }
 }
 
 struct PostComment: Identifiable {
-    let id = UUID()
+    let id: String
     let authorName: String
     let authorLevel: RunnerLevel
     let content: String
-    let timeAgo: String
+    let createdAt: Date
+
+    var timeAgo: String {
+        CommunityFormatter.relativeString(from: createdAt)
+    }
 }
 
 struct RunMatePost: Identifiable {
-    let id = UUID()
+    let id: String
+    let authorId: String
     let authorName: String
     let authorLevel: RunnerLevel
     let title: String
@@ -47,143 +58,478 @@ struct RunMatePost: Identifiable {
     var currentMembers: Int
     let maxMembers: Int
     let description: String
-    let timeAgo: String
+    let createdAt: Date
     var isJoined: Bool = false
+
+    var timeAgo: String {
+        CommunityFormatter.relativeString(from: createdAt)
+    }
+}
+
+struct CommunityFriend: Identifiable {
+    let id: String
+    let name: String
+    let level: RunnerLevel
+    let totalDistanceKm: Double
+    let totalRuns: Int
+
+    var recordSummary: String {
+        "\(totalRuns)회 · \(String(format: "%.1f", totalDistanceKm))km"
+    }
+}
+
+enum CommunityFeedScope: String, CaseIterable {
+    case all = "전체 피드"
+    case friends = "친구 피드"
+}
+
+enum CommunityFormatter {
+    static func relativeString(from date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+extension RunnerPost.PostType {
+    init(firestoreValue: String) {
+        switch firestoreValue {
+        case "runResult":
+            self = .runResult
+        case "mateFinding":
+            self = .mateFinding
+        default:
+            self = .freeBoard
+        }
+    }
+
+    var firestoreValue: String {
+        rawValue
+    }
 }
 
 // MARK: - Community ViewModel
 
 @MainActor
 final class CommunityViewModel: ObservableObject {
-    @Published var matePosts: [RunMatePost]
-    @Published var feedPosts: [RunnerPost]
+    @Published var matePosts: [RunMatePost] = []
+    @Published var feedPosts: [RunnerPost] = []
+    @Published var suggestedFriends: [CommunityFriend] = []
+    @Published var friends: [CommunityFriend] = []
+    @Published var feedScope: CommunityFeedScope = .all {
+        didSet { applyFeedFilter() }
+    }
+    @Published var isLoading = false
+    @Published var isSubmitting = false
+    @Published var errorMessage: String?
+    @Published var blockedUserIds: Set<String> = []
 
-    init() {
-        matePosts = Self.initialMatePosts
-        feedPosts = Self.initialFeedPosts
+    private var backendService: BackendService?
+    private var allFeedPosts: [RunnerPost] = []
+    private var currentUserId: String?
+    private var friendIds: Set<String> = []
+    private var userDirectory: [String: FirestoreUser] = [:]
+
+    func configure(backendService: BackendService) {
+        guard self.backendService !== backendService else { return }
+        self.backendService = backendService
     }
 
-    func toggleLike(postId: UUID) {
-        guard let idx = feedPosts.firstIndex(where: { $0.id == postId }) else { return }
-        feedPosts[idx].isLiked.toggle()
-        feedPosts[idx].likes += feedPosts[idx].isLiked ? 1 : -1
+    private func presentableMessage(for error: Error, fallback: String) -> String {
+        let nsError = error as NSError
+        let localized = nsError.localizedDescription.lowercased()
+
+        if (nsError.domain == "FIRFirestoreErrorDomain" && nsError.code == 7)
+            || localized.contains("missing or insufficient permissions")
+            || localized.contains("insufficient permissions") {
+            return "커뮤니티 권한을 확인해주세요."
+        }
+
+        return fallback
     }
 
-    func addComment(postId: UUID, content: String) {
-        guard let idx = feedPosts.firstIndex(where: { $0.id == postId }) else { return }
-        let comment = PostComment(
-            authorName: "나",
-            authorLevel: .starter,
-            content: content,
-            timeAgo: "방금"
-        )
-        feedPosts[idx].comments.append(comment)
-    }
+    func reload() async {
+        guard let backendService else { return }
+        guard backendService.isSignedIn else {
+            matePosts = []
+            feedPosts = []
+            allFeedPosts = []
+            suggestedFriends = []
+            friends = []
+            friendIds = []
+            userDirectory = [:]
+            errorMessage = nil
+            return
+        }
 
-    func toggleJoin(postId: UUID) {
-        guard let idx = matePosts.firstIndex(where: { $0.id == postId }) else { return }
-        if matePosts[idx].isJoined {
-            matePosts[idx].isJoined = false
-            matePosts[idx].currentMembers -= 1
-        } else if matePosts[idx].currentMembers < matePosts[idx].maxMembers {
-            matePosts[idx].isJoined = true
-            matePosts[idx].currentMembers += 1
+        isLoading = true
+        defer { isLoading = false }
+
+        // 네 작업을 동시에 시작하되, 유저 목록·친구 목록은 soft-fail 처리
+        // (Firestore 보안 규칙에서 컬렉션 전체 읽기가 막혀도 포스트는 보여줌)
+        async let usersTask   = backendService.fetchUsers(limit: 100)
+        async let friendsTask = backendService.fetchFriends()
+        async let blockedTask = backendService.fetchBlockedUsers()
+        async let mateTask    = backendService.fetchMatePosts()
+        async let feedTask    = backendService.fetchFeedPosts()
+
+        let users       = (try? await usersTask)   ?? []
+        let friendLinks = (try? await friendsTask) ?? []
+        let blocked     = (try? await blockedTask) ?? []
+        blockedUserIds  = Set(blocked)
+
+        do {
+            let fetchedMatePosts = try await mateTask
+            let fetchedFeedPosts = try await feedTask
+
+            currentUserId = backendService.userId
+            userDirectory = Dictionary(uniqueKeysWithValues: users.map { ($0.uid, $0) })
+            friendIds = Set(friendLinks.map(\.friendId))
+
+            let sortedUsers = users.sorted { lhs, rhs in
+                if lhs.totalDistanceKm == rhs.totalDistanceKm {
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+                return lhs.totalDistanceKm > rhs.totalDistanceKm
+            }
+
+            friends = sortedUsers
+                .filter { friendIds.contains($0.uid) }
+                .map { makeCommunityFriend(from: $0) }
+
+            suggestedFriends = sortedUsers
+                .filter { user in
+                    guard let currentUserId else { return false }
+                    return user.uid != currentUserId && !friendIds.contains(user.uid)
+                }
+                .prefix(12)
+                .map { makeCommunityFriend(from: $0) }
+
+            matePosts = fetchedMatePosts
+                .sorted { $0.createdAt > $1.createdAt }
+                .filter { !blockedUserIds.contains($0.authorId) }
+                .map { makeMatePost(from: $0) }
+
+            allFeedPosts = fetchedFeedPosts
+                .sorted { $0.createdAt > $1.createdAt }
+                .filter { !blockedUserIds.contains($0.authorId) }
+                .map { makeRunnerPost(from: $0) }
+
+            applyFeedFilter()
+            errorMessage = nil
+        } catch {
+            errorMessage = presentableMessage(for: error, fallback: "커뮤니티를 불러오지 못했어요.")
         }
     }
 
-    func addMatePost(_ post: RunMatePost) {
-        matePosts.insert(post, at: 0)
+    func addFriend(friendId: String) async {
+        guard let backendService else { return }
+        guard backendService.isSignedIn else {
+            errorMessage = "친구 추가는 로그인 후 사용할 수 있어요."
+            return
+        }
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await backendService.addFriend(friendId: friendId)
+            await reload()
+        } catch {
+            errorMessage = "친구 추가 실패: \(error.localizedDescription)"
+        }
     }
 
-    func addFeedPost(_ post: RunnerPost) {
-        feedPosts.insert(post, at: 0)
+    func toggleLike(postId: String) async {
+        guard let backendService else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await backendService.toggleLikeFeedPost(postId: postId)
+            await reload()
+        } catch {
+            errorMessage = "좋아요 반영 실패: \(error.localizedDescription)"
+        }
     }
 
-    // MARK: - Sample Data
+    func addComment(postId: String, content: String) async {
+        guard
+            let backendService,
+            let userId = backendService.userId
+        else {
+            errorMessage = "댓글 작성은 로그인 후 사용할 수 있어요."
+            return
+        }
 
-    private static var initialMatePosts: [RunMatePost] {
-        [
-            RunMatePost(
-                authorName: "지민", authorLevel: .gold,
-                title: "한강 반포 주말 러닝 같이 하실 분!",
-                location: "반포한강공원",
-                coordinate: CLLocationCoordinate2D(latitude: 37.5085, longitude: 126.9960),
-                date: "3/30 (일)", time: "07:00",
-                targetPace: "5\'30\"/km", targetDistance: "10km",
-                currentMembers: 3, maxMembers: 6,
-                description: "편하게 대화하면서 달려요. 초보도 환영합니다!",
-                timeAgo: "2시간 전"
-            ),
-            RunMatePost(
-                authorName: "현우", authorLevel: .silver,
-                title: "여의도 야간 러닝 크루 모집",
-                location: "여의도공원",
-                coordinate: CLLocationCoordinate2D(latitude: 37.5284, longitude: 126.9345),
-                date: "3/29 (토)", time: "21:00",
-                targetPace: "6\'00\"/km", targetDistance: "5km",
-                currentMembers: 2, maxMembers: 4,
-                description: "레이저 페이스메이커 보면서 같이 달려요!",
-                timeAgo: "5시간 전"
-            ),
-            RunMatePost(
-                authorName: "소연", authorLevel: .laser,
-                title: "잠실 인터벌 트레이닝 파트너",
-                location: "잠실종합운동장",
-                coordinate: CLLocationCoordinate2D(latitude: 37.5152, longitude: 127.0735),
-                date: "4/1 (화)", time: "06:30",
-                targetPace: "4\'30\"/km", targetDistance: "8km",
-                currentMembers: 4, maxMembers: 4,
-                description: "인터벌 5세트, 중급 이상 추천합니다.",
-                timeAgo: "1일 전"
-            ),
-        ]
+        let author = userDirectory[userId] ?? backendService.currentUser
+        let comment = FirestoreComment(
+            id: UUID().uuidString,
+            authorId: userId,
+            authorName: author?.displayName ?? "러너",
+            authorLevel: author?.level ?? RunnerLevel.starter.rawValue,
+            content: content,
+            createdAt: Date()
+        )
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await backendService.addCommentToFeedPost(postId: postId, comment: comment)
+            await reload()
+        } catch {
+            errorMessage = "댓글 저장 실패: \(error.localizedDescription)"
+        }
     }
 
-    private static var initialFeedPosts: [RunnerPost] {
-        [
-            RunnerPost(
-                authorName: "지민", authorLevel: .gold,
-                content: "오늘 한강에서 10K 완주! BeamChaser 레이저 덕분에 페이스 유지 성공",
-                distanceKm: 10.2, paceFormatted: "5\'24\"/km",
-                timeAgo: "30분 전", likes: 12,
-                comments: [
-                    PostComment(authorName: "현우", authorLevel: .silver, content: "축하합니다! 대단해요", timeAgo: "20분 전"),
-                    PostComment(authorName: "소연", authorLevel: .laser, content: "다음엔 같이 달려요!", timeAgo: "15분 전"),
-                ],
-                type: .runResult
-            ),
-            RunnerPost(
-                authorName: "현우", authorLevel: .silver,
-                content: "야간 러닝 크루 첫 모임 성공적! 다음에도 같이 달려요",
-                distanceKm: 5.1, paceFormatted: "6\'10\"/km",
-                timeAgo: "2시간 전", likes: 8,
-                comments: [
-                    PostComment(authorName: "지민", authorLevel: .gold, content: "다음엔 저도 참여할게요!", timeAgo: "1시간 전"),
-                ],
-                type: .runResult
-            ),
-            RunnerPost(
-                authorName: "소연", authorLevel: .laser,
-                content: "인터벌 트레이닝 꿀팁: 워치 + BeamChaser 레이저 조합이 최고예요.",
-                distanceKm: nil, paceFormatted: nil,
-                timeAgo: "5시간 전", likes: 24,
+    func toggleJoin(postId: String) async {
+        guard let backendService else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await backendService.toggleJoinMatePost(postId: postId)
+            await reload()
+        } catch {
+            errorMessage = "참여 상태 반영 실패: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Moderation
+
+    func reportPost(targetId: String, targetType: String, reason: String) async {
+        guard let backendService else { return }
+        do {
+            try await backendService.reportContent(
+                targetId: targetId,
+                targetType: targetType,
+                reason: reason
+            )
+        } catch {
+            errorMessage = "신고를 전송하지 못했어요."
+        }
+    }
+
+    func blockUser(userId: String) async {
+        guard let backendService else { return }
+        do {
+            try await backendService.blockUser(uid: userId)
+            blockedUserIds.insert(userId)
+            allFeedPosts = allFeedPosts.filter { $0.authorId != userId }
+            applyFeedFilter()
+            matePosts = matePosts.filter { $0.authorId != userId }
+        } catch {
+            errorMessage = "차단할 수 없었어요."
+        }
+    }
+
+    func createMatePost(
+        title: String,
+        location: String,
+        coordinate: CLLocationCoordinate2D,
+        date: Date,
+        targetPace: String,
+        targetDistance: String,
+        maxMembers: Int,
+        description: String
+    ) async -> Bool {
+        guard
+            let backendService,
+            let userId = backendService.userId
+        else {
+            errorMessage = "메이트 모집은 로그인 후 사용할 수 있어요."
+            return false
+        }
+
+        let author = userDirectory[userId] ?? backendService.currentUser
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "M/d (E)"
+        dateFormatter.locale = Locale(identifier: "ko_KR")
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm"
+        timeFormatter.locale = Locale(identifier: "ko_KR")
+
+        let post = FirestoreMatePost(
+            id: UUID().uuidString,
+            authorId: userId,
+            authorName: author?.displayName ?? "러너",
+            authorLevel: author?.level ?? RunnerLevel.starter.rawValue,
+            title: title,
+            location: location,
+            latitude: approximateCoordinate(coordinate.latitude),
+            longitude: approximateCoordinate(coordinate.longitude),
+            date: dateFormatter.string(from: date),
+            time: timeFormatter.string(from: date),
+            targetPace: targetPace,
+            targetDistance: targetDistance,
+            currentMembers: 1,
+            maxMembers: maxMembers,
+            description: description,
+            joinedUserIds: [userId],
+            createdAt: Date()
+        )
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await backendService.createMatePost(post)
+            await reload()
+            return true
+        } catch {
+            errorMessage = "메이트 모집 글 저장 실패: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func createFeedPost(content: String, photoData: Data?) async -> Bool {
+        guard
+            let backendService,
+            let userId = backendService.userId
+        else {
+            errorMessage = "피드 작성은 로그인 후 사용할 수 있어요."
+            return false
+        }
+
+        let author = userDirectory[userId] ?? backendService.currentUser
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            var photoURL: String?
+            if let photoData {
+                let uploadData: Data
+                if let image = UIImage(data: photoData),
+                   let jpegData = image.jpegData(compressionQuality: 0.85) {
+                    uploadData = jpegData
+                } else {
+                    uploadData = photoData
+                }
+
+                photoURL = try await backendService.uploadPhoto(
+                    data: uploadData,
+                    path: "feed_photos/\(userId)/\(UUID().uuidString).jpg"
+                )
+            }
+
+            let post = FirestoreFeedPost(
+                id: UUID().uuidString,
+                authorId: userId,
+                authorName: author?.displayName ?? "러너",
+                authorLevel: author?.level ?? RunnerLevel.starter.rawValue,
+                content: content,
+                distanceKm: nil,
+                paceFormatted: nil,
+                photoURL: photoURL,
+                likedUserIds: [],
                 comments: [],
-                type: .freeBoard
-            ),
-        ]
+                type: RunnerPost.PostType.freeBoard.firestoreValue,
+                createdAt: Date()
+            )
+
+            try await backendService.createFeedPost(post)
+            await reload()
+            return true
+        } catch {
+            errorMessage = "피드 업로드 실패: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func approximateCoordinate(_ value: Double) -> Double {
+        // 소수점 3자리로 완화해 약 100m 단위의 위치만 공유합니다.
+        (value * 1000).rounded() / 1000
+    }
+
+    private func applyFeedFilter() {
+        switch feedScope {
+        case .all:
+            feedPosts = allFeedPosts
+        case .friends:
+            feedPosts = allFeedPosts.filter { friendIds.contains($0.authorId) }
+        }
+    }
+
+    private func makeCommunityFriend(from user: FirestoreUser) -> CommunityFriend {
+        CommunityFriend(
+            id: user.uid,
+            name: user.displayName,
+            level: RunnerLevel(rawValue: user.level) ?? .starter,
+            totalDistanceKm: user.totalDistanceKm,
+            totalRuns: user.totalRuns
+        )
+    }
+
+    private func makeMatePost(from post: FirestoreMatePost) -> RunMatePost {
+        RunMatePost(
+            id: post.id,
+            authorId: post.authorId,
+            authorName: post.authorName,
+            authorLevel: RunnerLevel(rawValue: post.authorLevel) ?? .starter,
+            title: post.title,
+            location: post.location,
+            coordinate: CLLocationCoordinate2D(latitude: post.latitude, longitude: post.longitude),
+            date: post.date,
+            time: post.time,
+            targetPace: post.targetPace,
+            targetDistance: post.targetDistance,
+            currentMembers: post.currentMembers,
+            maxMembers: post.maxMembers,
+            description: post.description,
+            createdAt: post.createdAt,
+            isJoined: post.joinedUserIds.contains(currentUserId ?? "")
+        )
+    }
+
+    private func makeRunnerPost(from post: FirestoreFeedPost) -> RunnerPost {
+        RunnerPost(
+            id: post.id,
+            authorId: post.authorId,
+            authorName: post.authorName,
+            authorLevel: RunnerLevel(rawValue: post.authorLevel) ?? .starter,
+            content: post.content,
+            distanceKm: post.distanceKm,
+            paceFormatted: post.paceFormatted,
+            createdAt: post.createdAt,
+            likes: post.likedUserIds.count,
+            comments: post.comments
+                .sorted { $0.createdAt < $1.createdAt }
+                .map {
+                    PostComment(
+                        id: $0.id,
+                        authorName: $0.authorName,
+                        authorLevel: RunnerLevel(rawValue: $0.authorLevel) ?? .starter,
+                        content: $0.content,
+                        createdAt: $0.createdAt
+                    )
+                },
+            type: RunnerPost.PostType(firestoreValue: post.type),
+            isLiked: post.likedUserIds.contains(currentUserId ?? ""),
+            photoURL: post.photoURL
+        )
     }
 }
 
 // MARK: - Community View
 
 struct CommunityView: View {
+    @EnvironmentObject private var backendService: BackendService
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @StateObject private var viewModel = CommunityViewModel()
     @State private var selectedTab: CommunityTab = .mate
+    @State private var selectedMateMode: MateMode = .friends
     @State private var showCreateMate = false
     @State private var showCreateFeed = false
     @State private var mapSearchText = ""
     @State private var mapSearchResults: [MKMapItem] = []
     @State private var mapCameraPosition: MapCameraPosition = .automatic
+    // 모집 글 신고/차단
+    @State private var moderationTarget: (id: String, type: String, authorId: String)? = nil
+    @State private var showMateReportDialog = false
+    @State private var showBlockConfirm = false
 
     enum CommunityTab: String, CaseIterable {
         case mate = "러닝 메이트"
@@ -197,55 +543,215 @@ struct CommunityView: View {
         }
     }
 
+    enum MateMode: String, CaseIterable {
+        case friends = "친구"
+        case discover = "찾기"
+
+        var icon: String {
+            switch self {
+            case .friends: return "person.2.wave.2.fill"
+            case .discover: return "location.magnifyingglass"
+            }
+        }
+    }
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
                 RBColor.bg.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    tabSelector
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
+                    stickyHeader
 
-                    ScrollView {
-                        LazyVStack(spacing: 14) {
-                            switch selectedTab {
-                            case .mate:
-                                mateContent
-                            case .feed:
-                                feedContent
+                    if !backendService.isSignedIn {
+                        signInRequiredState
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 14) {
+                                if let error = viewModel.errorMessage {
+                                    errorBanner(error)
+                                }
+
+                                if viewModel.isLoading && viewModel.matePosts.isEmpty && viewModel.feedPosts.isEmpty {
+                                    ProgressView()
+                                        .tint(RBColor.accent)
+                                        .padding(.top, 40)
+                                }
+
+                                switch selectedTab {
+                                case .mate:
+                                    mateContent
+                                case .feed:
+                                    feedContent
+                                }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 30)
+                        .refreshable {
+                            await viewModel.reload()
+                        }
+                        .contentMargins(.bottom, 100, for: .scrollContent)
                     }
                 }
             }
-            .navigationTitle("커뮤니티")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        if selectedTab == .mate {
-                            showCreateMate = true
-                        } else {
-                            showCreateFeed = true
-                        }
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(RBColor.accent)
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showCreateMate) {
                 CreateMatePostView(viewModel: viewModel)
             }
             .sheet(isPresented: $showCreateFeed) {
                 CreateFeedPostView(viewModel: viewModel)
             }
+            .confirmationDialog(
+                appLanguage.text("신고 사유를 선택하세요", "Select a reason"),
+                isPresented: $showMateReportDialog,
+                titleVisibility: .visible
+            ) {
+                Button(appLanguage.text("스팸", "Spam")) {
+                    if let t = moderationTarget {
+                        Task { await viewModel.reportPost(targetId: t.id, targetType: t.type, reason: "스팸") }
+                    }
+                }
+                Button(appLanguage.text("욕설 / 혐오 발언", "Hate speech")) {
+                    if let t = moderationTarget {
+                        Task { await viewModel.reportPost(targetId: t.id, targetType: t.type, reason: "욕설/혐오 발언") }
+                    }
+                }
+                Button(appLanguage.text("부적절한 콘텐츠", "Inappropriate content")) {
+                    if let t = moderationTarget {
+                        Task { await viewModel.reportPost(targetId: t.id, targetType: t.type, reason: "부적절한 콘텐츠") }
+                    }
+                }
+                Button(appLanguage.text("허위 정보", "False information")) {
+                    if let t = moderationTarget {
+                        Task { await viewModel.reportPost(targetId: t.id, targetType: t.type, reason: "허위 정보") }
+                    }
+                }
+                Button(appLanguage.text("취소", "Cancel"), role: .cancel) { moderationTarget = nil }
+            }
+            .alert(
+                appLanguage.text("이 사용자를 차단할까요?", "Block this user?"),
+                isPresented: $showBlockConfirm
+            ) {
+                Button(appLanguage.text("차단", "Block"), role: .destructive) {
+                    if let t = moderationTarget {
+                        Task { await viewModel.blockUser(userId: t.authorId) }
+                        moderationTarget = nil
+                    }
+                }
+                Button(appLanguage.text("취소", "Cancel"), role: .cancel) { moderationTarget = nil }
+            } message: {
+                Text(appLanguage.text(
+                    "차단하면 이 사용자의 게시글이 표시되지 않습니다.",
+                    "You won't see posts from this user."
+                ))
+            }
+            .task(id: backendService.userId) {
+                viewModel.configure(backendService: backendService)
+                await viewModel.reload()
+            }
         }
+    }
+
+    private var stickyHeader: some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(appLanguage.text("커뮤니티", "Community"))
+                        .font(RBFont.hero(28))
+                        .foregroundStyle(RBColor.textPrimary)
+                }
+
+                Spacer()
+
+                if backendService.isSignedIn {
+                    addButton
+                }
+            }
+
+            tabSelector
+
+            if selectedTab == .mate {
+                mateModeSelector
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+        .background(
+            VStack(spacing: 0) {
+                RBColor.bg.opacity(0.96)
+                Rectangle()
+                    .fill(RBColor.divider.opacity(0.7))
+                    .frame(height: 1)
+            }
+            .ignoresSafeArea()
+        )
+    }
+
+    private var addButton: some View {
+        Button {
+            if selectedTab == .mate {
+                showCreateMate = true
+            } else {
+                showCreateFeed = true
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(RBColor.accentGradient)
+                    .frame(width: 52, height: 52)
+                Image(systemName: "plus")
+                    .font(.system(size: 20, weight: .heavy))
+            }
+            .foregroundStyle(.white)
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
+            )
+            .shadow(color: RBColor.accent.opacity(0.35), radius: 14, y: 8)
+        }
+        .accessibilityLabel(selectedTab == .mate ? appLanguage.text("모집 글 추가", "Add mate post") : appLanguage.text("피드 추가", "Add feed post"))
+    }
+
+    private var signInRequiredState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "person.crop.circle.badge.exclamationmark")
+                .font(.system(size: 40))
+                .foregroundStyle(RBColor.textTertiary)
+            Text(appLanguage.text("로그인 후 이용할 수 있어요", "Available after sign-in"))
+                .font(RBFont.label(18))
+                .foregroundStyle(RBColor.textPrimary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func errorBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(RBColor.danger.opacity(0.16))
+                    .frame(width: 28, height: 28)
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(RBColor.danger)
+            }
+            Text(text)
+                .font(RBFont.label(12))
+                .foregroundStyle(RBColor.textPrimary)
+            Spacer()
+        }
+        .padding(12)
+        .background(RBColor.danger.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(RBColor.danger.opacity(0.28), lineWidth: 1)
+        )
     }
 
     // MARK: - Tab Selector
@@ -261,18 +767,52 @@ struct CommunityView: View {
                     HStack(spacing: 6) {
                         Image(systemName: tab.icon)
                             .font(.system(size: 13))
-                        Text(tab.rawValue)
+                        Text(tab == .mate ? appLanguage.text("러닝 메이트", "Running Mate") : appLanguage.text("피드", "Feed"))
                             .font(RBFont.label(14))
                     }
                     .foregroundStyle(selectedTab == tab ? .white : RBColor.textSecondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
-                    .background(
-                        selectedTab == tab
-                            ? AnyShapeStyle(RBColor.accent.opacity(0.3))
-                            : AnyShapeStyle(RBColor.cardBg)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(selectedTab == tab ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(RBColor.cardBg))
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(selectedTab == tab ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.7), lineWidth: 1)
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: selectedTab == tab ? RBColor.accent.opacity(0.18) : .clear, radius: 12, y: 6)
+                }
+            }
+        }
+    }
+
+    private var mateModeSelector: some View {
+        HStack(spacing: 8) {
+            ForEach(MateMode.allCases, id: \.self) { mode in
+                Button {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedMateMode = mode
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 12))
+                        Text(mode == .friends ? appLanguage.text("친구", "Friends") : appLanguage.text("찾기", "Discover"))
+                            .font(RBFont.label(13))
+                    }
+                    .foregroundStyle(selectedMateMode == mode ? .white : RBColor.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .background {
+                        Capsule()
+                            .fill(selectedMateMode == mode ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(RBColor.cardBg))
+                    }
+                    .overlay(
+                        Capsule()
+                            .stroke(selectedMateMode == mode ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
                 }
             }
         }
@@ -282,6 +822,37 @@ struct CommunityView: View {
 
     private var mateContent: some View {
         Group {
+            switch selectedMateMode {
+            case .friends:
+                mateFriendsContent
+            case .discover:
+                mateDiscoverContent
+            }
+        }
+    }
+
+    private var mateFriendsContent: some View {
+        Group {
+            if !viewModel.friends.isEmpty {
+                mateFriendsHero
+                friendsRecordSection
+            }
+
+            if !viewModel.suggestedFriends.isEmpty {
+                suggestedFriendsSection
+            }
+
+            if viewModel.friends.isEmpty && viewModel.suggestedFriends.isEmpty && !viewModel.isLoading {
+                emptyState(
+                    icon: "person.2.slash",
+                    title: appLanguage.text("아직 연결된 러닝 친구가 없어요", "No running friends yet")
+                )
+            }
+        }
+    }
+
+    private var mateDiscoverContent: some View {
+        Group {
             mateMapPreview
 
             VStack(alignment: .leading, spacing: 10) {
@@ -289,7 +860,7 @@ struct CommunityView: View {
                     Image(systemName: "location.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(RBColor.accent)
-                    Text("내 근처 러닝 모집")
+                    Text(appLanguage.text("내 근처 러닝 모집", "Runs Near Me"))
                         .font(RBFont.label(14))
                         .foregroundStyle(RBColor.textPrimary)
                     Spacer()
@@ -297,29 +868,40 @@ struct CommunityView: View {
             }
 
             ForEach(viewModel.matePosts) { post in
-                mateCard(post)
+                mateCard(
+                    post,
+                    onReport: {
+                        moderationTarget = (post.id, "matePost", post.authorId)
+                        showMateReportDialog = true
+                    },
+                    onBlock: {
+                        moderationTarget = (post.id, "matePost", post.authorId)
+                        showBlockConfirm = true
+                    }
+                )
             }
 
-            if viewModel.matePosts.isEmpty {
+            if viewModel.matePosts.isEmpty && !viewModel.isLoading {
                 emptyState(
                     icon: "person.2.slash",
-                    title: "아직 모집 글이 없어요",
-                    subtitle: "첫 번째 러닝 메이트 모집 글을 작성해보세요!"
+                    title: appLanguage.text("아직 모집 글이 없어요", "No mate posts yet")
                 )
             }
         }
     }
 
-    // MARK: - Map Preview
-
     private var mateMapPreview: some View {
         VStack(spacing: 0) {
-            // 검색 바
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14))
                     .foregroundStyle(RBColor.textTertiary)
-                TextField("장소 검색 (예: 한강공원, 여의도)", text: $mapSearchText)
+                TextField(
+                    "",
+                    text: $mapSearchText,
+                    prompt: Text(appLanguage.text("장소 검색 (예: 한강공원, 여의도)", "Search places (e.g. Han River Park)"))
+                        .foregroundStyle(RBColor.textSecondary)
+                )
                     .font(RBFont.label(13))
                     .foregroundStyle(RBColor.textPrimary)
                     .onSubmit { searchMap() }
@@ -337,10 +919,13 @@ struct CommunityView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(RBColor.cardBgLight)
+            .background(RBColor.cardBg)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(RBColor.divider.opacity(0.7), lineWidth: 1)
+            )
 
-            // 검색 결과 리스트
             if !mapSearchResults.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -366,8 +951,12 @@ struct CommunityView: View {
                                 .foregroundStyle(RBColor.textPrimary)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(RBColor.accent.opacity(0.2))
+                                .background(RBColor.accent.opacity(0.18))
                                 .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(RBColor.accent.opacity(0.35), lineWidth: 1)
+                                )
                             }
                         }
                     }
@@ -375,7 +964,6 @@ struct CommunityView: View {
                 }
             }
 
-            // 지도
             Map(position: $mapCameraPosition) {
                 ForEach(viewModel.matePosts) { post in
                     Annotation(post.title, coordinate: post.coordinate) {
@@ -401,6 +989,44 @@ struct CommunityView: View {
         }
     }
 
+    private var mateFriendsHero: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(appLanguage.text("친구 네트워크", "Friend Network"))
+                        .font(RBFont.label(18))
+                        .foregroundStyle(RBColor.textPrimary)
+                }
+                Spacer()
+                Image(systemName: "figure.run.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(RBColor.accent)
+            }
+
+            HStack(spacing: 10) {
+                socialStatCard(
+                    title: appLanguage.text("내 친구", "Friends"),
+                    value: "\(viewModel.friends.count)",
+                    subtitle: appLanguage.text("함께 뛰는 러너", "Connected runners")
+                )
+                socialStatCard(
+                    title: appLanguage.text("추천", "Suggested"),
+                    value: "\(viewModel.suggestedFriends.count)",
+                    subtitle: appLanguage.text("추가 후보", "People to add")
+                )
+            }
+        }
+        .padding(18)
+        .background(
+            LinearGradient(
+                colors: [RBColor.cardBg, RBColor.accent.opacity(0.12)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
     private func searchMap() {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = mapSearchText
@@ -416,16 +1042,20 @@ struct CommunityView: View {
         }
     }
 
-    private func mateCard(_ post: RunMatePost) -> some View {
+    private func mateCard(
+        _ post: RunMatePost,
+        onReport: @escaping () -> Void,
+        onBlock: @escaping () -> Void
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 ZStack {
                     Circle()
-                        .fill(levelColor(post.authorLevel).opacity(0.2))
+                        .fill(communityLevelColor(post.authorLevel).opacity(0.2))
                         .frame(width: 36, height: 36)
                     Text(String(post.authorName.prefix(1)))
                         .font(RBFont.label(14))
-                        .foregroundStyle(levelColor(post.authorLevel))
+                        .foregroundStyle(communityLevelColor(post.authorLevel))
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -435,10 +1065,10 @@ struct CommunityView: View {
                             .foregroundStyle(RBColor.textPrimary)
                         Text(post.authorLevel.rawValue)
                             .font(RBFont.caption(9))
-                            .foregroundStyle(levelColor(post.authorLevel))
+                            .foregroundStyle(communityLevelColor(post.authorLevel))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(levelColor(post.authorLevel).opacity(0.15))
+                            .background(communityLevelColor(post.authorLevel).opacity(0.15))
                             .clipShape(Capsule())
                     }
                     Text(post.timeAgo)
@@ -455,13 +1085,34 @@ struct CommunityView: View {
                         .font(RBFont.metric(12))
                 }
                 .foregroundStyle(post.currentMembers >= post.maxMembers ? RBColor.textTertiary : RBColor.accent)
+
+                // MARK: 신고 / 차단 메뉴
+                Menu {
+                    Button(role: .destructive, action: onReport) {
+                        Label(
+                            appLanguage.text("신고", "Report"),
+                            systemImage: "exclamationmark.bubble"
+                        )
+                    }
+                    Button(role: .destructive, action: onBlock) {
+                        Label(
+                            appLanguage.text("차단", "Block"),
+                            systemImage: "hand.raised"
+                        )
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14))
+                        .foregroundStyle(RBColor.textTertiary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
             }
 
             Text(post.title)
                 .font(RBFont.label(16))
                 .foregroundStyle(RBColor.textPrimary)
 
-            // Mini map
             Map {
                 Annotation("", coordinate: post.coordinate) {
                     Image(systemName: "mappin.circle.fill")
@@ -494,14 +1145,16 @@ struct CommunityView: View {
 
             if post.currentMembers < post.maxMembers || post.isJoined {
                 Button {
-                    withAnimation(.spring(response: 0.3)) {
-                        viewModel.toggleJoin(postId: post.id)
+                    Task {
+                        await viewModel.toggleJoin(postId: post.id)
                     }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: post.isJoined ? "checkmark.circle.fill" : "hand.raised.fill")
                             .font(.system(size: 12))
-                        Text(post.isJoined ? "참여 취소" : "참여하기")
+                        Text(post.isJoined
+                             ? appLanguage.text("참여 취소", "Leave")
+                             : appLanguage.text("참여하기", "Join"))
                             .font(RBFont.label(13))
                     }
                     .foregroundStyle(RBColor.textPrimary)
@@ -513,7 +1166,7 @@ struct CommunityView: View {
             } else {
                 HStack {
                     Spacer()
-                    Text("모집 마감")
+                    Text(appLanguage.text("모집 마감", "Closed"))
                         .font(RBFont.label(12))
                         .foregroundStyle(RBColor.textTertiary)
                     Spacer()
@@ -526,6 +1179,25 @@ struct CommunityView: View {
         .padding(16)
         .background(RBColor.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func socialStatCard(title: String, value: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(RBFont.caption(10))
+                .foregroundStyle(RBColor.textTertiary)
+                .tracking(1)
+            Text(value)
+                .font(RBFont.metric(22))
+                .foregroundStyle(RBColor.textPrimary)
+            Text(subtitle)
+                .font(RBFont.caption(11))
+                .foregroundStyle(RBColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RBColor.cardBg.opacity(0.75))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func infoTag(icon: String, text: String) -> some View {
@@ -546,23 +1218,245 @@ struct CommunityView: View {
 
     private var feedContent: some View {
         Group {
+            if !viewModel.friends.isEmpty || !viewModel.suggestedFriends.isEmpty {
+                feedStoryStrip
+            }
+
+            feedScopeSelector
+
             ForEach(viewModel.feedPosts) { post in
                 FeedCardView(post: post, viewModel: viewModel)
             }
 
-            if viewModel.feedPosts.isEmpty {
+            if viewModel.feedScope == .friends && viewModel.feedPosts.isEmpty && !viewModel.friends.isEmpty {
+                emptyState(
+                    icon: "person.3.sequence.fill",
+                    title: appLanguage.text("친구 피드가 아직 없어요", "No friend posts yet")
+                )
+            } else if viewModel.feedPosts.isEmpty && !viewModel.isLoading {
                 emptyState(
                     icon: "bubble.left.and.bubble.right",
-                    title: "아직 게시글이 없어요",
-                    subtitle: "러닝 결과를 공유하고 다른 러너들과 소통해보세요!"
+                    title: appLanguage.text("아직 게시글이 없어요", "No posts yet")
                 )
+            }
+        }
+    }
+
+    private var feedStoryStrip: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(appLanguage.text("오늘의 러너", "Today's Runners"))
+                    .font(RBFont.label(16))
+                    .foregroundStyle(RBColor.textPrimary)
+                Spacer()
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(viewModel.friends.isEmpty ? viewModel.suggestedFriends : viewModel.friends) { friend in
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [RBColor.accent, communityLevelColor(friend.level)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 2
+                                    )
+                                    .frame(width: 68, height: 68)
+
+                                Circle()
+                                    .fill(communityLevelColor(friend.level).opacity(0.16))
+                                    .frame(width: 58, height: 58)
+
+                                Text(String(friend.name.prefix(1)))
+                                    .font(RBFont.hero(20))
+                                    .foregroundStyle(communityLevelColor(friend.level))
+                            }
+
+                            Text(friend.name)
+                                .font(RBFont.caption(11))
+                                .foregroundStyle(RBColor.textPrimary)
+                                .lineLimit(1)
+
+                            Text(viewModel.friends.contains(where: { $0.id == friend.id })
+                                 ? appLanguage.text("친구", "Friend")
+                                 : appLanguage.text("추천", "Suggested"))
+                                .font(RBFont.caption(9))
+                                .foregroundStyle(RBColor.textTertiary)
+                        }
+                        .frame(width: 78)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private var suggestedFriendsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(appLanguage.text("추천 친구", "Suggested Friends"))
+                    .font(RBFont.label(16))
+                    .foregroundStyle(RBColor.textPrimary)
+                Spacer()
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(viewModel.suggestedFriends) { friend in
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    Circle()
+                                        .fill(communityLevelColor(friend.level).opacity(0.2))
+                                        .frame(width: 42, height: 42)
+                                    Text(String(friend.name.prefix(1)))
+                                        .font(RBFont.label(16))
+                                        .foregroundStyle(communityLevelColor(friend.level))
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(friend.name)
+                                        .font(RBFont.label(13))
+                                        .foregroundStyle(RBColor.textPrimary)
+                                        .lineLimit(1)
+                                    Text(friend.level.rawValue)
+                                        .font(RBFont.caption(10))
+                                        .foregroundStyle(communityLevelColor(friend.level))
+                                }
+                            }
+
+                            Text(friend.recordSummary)
+                                .font(RBFont.caption(11))
+                                .foregroundStyle(RBColor.textSecondary)
+
+                            Button {
+                                Task {
+                                    await viewModel.addFriend(friendId: friend.id)
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.badge.plus")
+                                        .font(.system(size: 11))
+                                    Text(appLanguage.text("친구 추가", "Add Friend"))
+                                        .font(RBFont.label(12))
+                                }
+                                .foregroundStyle(RBColor.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 34)
+                                .background(RBColor.accentGradient)
+                                .clipShape(Capsule())
+                            }
+                        }
+                        .frame(width: 200, alignment: .leading)
+                        .padding(14)
+                        .background(RBColor.cardBg)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    private var friendsRecordSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(appLanguage.text("친구 기록", "Friend Records"))
+                    .font(RBFont.label(16))
+                    .foregroundStyle(RBColor.textPrimary)
+                Spacer()
+                Text(appLanguage.text("\(viewModel.friends.count)명", "\(viewModel.friends.count) runners"))
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(viewModel.friends) { friend in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    Circle()
+                                        .fill(communityLevelColor(friend.level).opacity(0.2))
+                                        .frame(width: 34, height: 34)
+                                    Text(String(friend.name.prefix(1)))
+                                        .font(RBFont.label(13))
+                                        .foregroundStyle(communityLevelColor(friend.level))
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(friend.name)
+                                        .font(RBFont.label(12))
+                                        .foregroundStyle(RBColor.textPrimary)
+                                    Text(friend.level.rawValue)
+                                        .font(RBFont.caption(9))
+                                        .foregroundStyle(communityLevelColor(friend.level))
+                                }
+                            }
+
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(appLanguage.text("누적 거리", "Distance"))
+                                        .font(RBFont.caption(9))
+                                        .foregroundStyle(RBColor.textTertiary)
+                                    Text(String(format: "%.1fkm", friend.totalDistanceKm))
+                                        .font(RBFont.metric(13))
+                                        .foregroundStyle(RBColor.textPrimary)
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(appLanguage.text("러닝 횟수", "Runs"))
+                                        .font(RBFont.caption(9))
+                                        .foregroundStyle(RBColor.textTertiary)
+                                    Text(appLanguage.text("\(friend.totalRuns)회", "\(friend.totalRuns)x"))
+                                        .font(RBFont.metric(13))
+                                        .foregroundStyle(RBColor.textPrimary)
+                                }
+                            }
+                        }
+                        .frame(width: 210, alignment: .leading)
+                        .padding(14)
+                        .background(RBColor.cardBg)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    private var feedScopeSelector: some View {
+        HStack(spacing: 8) {
+            ForEach(CommunityFeedScope.allCases, id: \.self) { scope in
+                Button {
+                    withAnimation(.spring(response: 0.3)) {
+                        viewModel.feedScope = scope
+                    }
+                } label: {
+                    Text(scope == .all ? appLanguage.text("전체 피드", "All Feed") : appLanguage.text("친구 피드", "Friends"))
+                        .font(RBFont.label(12))
+                        .foregroundStyle(viewModel.feedScope == scope ? .white : RBColor.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background {
+                            Capsule()
+                                .fill(viewModel.feedScope == scope ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(RBColor.cardBg))
+                        }
+                        .overlay(
+                            Capsule()
+                                .stroke(viewModel.feedScope == scope ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                        )
+                        .clipShape(Capsule())
+                }
             }
         }
     }
 
     // MARK: - Empty State
 
-    private func emptyState(icon: String, title: String, subtitle: String) -> some View {
+    private func emptyState(icon: String, title: String, subtitle: String? = nil) -> some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 40))
@@ -570,214 +1464,325 @@ struct CommunityView: View {
             Text(title)
                 .font(RBFont.label(16))
                 .foregroundStyle(RBColor.textSecondary)
-            Text(subtitle)
-                .font(RBFont.caption(12))
-                .foregroundStyle(RBColor.textTertiary)
-                .multilineTextAlignment(.center)
+            if let subtitle {
+                Text(subtitle)
+                    .font(RBFont.caption(12))
+                    .foregroundStyle(RBColor.textTertiary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 60)
     }
-
-    private func levelColor(_ level: RunnerLevel) -> Color {
-        switch level {
-        case .starter: return .gray
-        case .bronze: return Color(red: 0.72, green: 0.45, blue: 0.2)
-        case .silver: return Color(white: 0.75)
-        case .gold: return Color(red: 1.0, green: 0.84, blue: 0.0)
-        case .laser: return RBColor.laserRed
-        case .beam: return RBColor.accent
-        }
-    }
 }
 
-// MARK: - Feed Card View (likes/comments)
+// MARK: - Feed Card View
 
 struct FeedCardView: View {
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     let post: RunnerPost
     @ObservedObject var viewModel: CommunityViewModel
     @State private var showComments = false
     @State private var newComment = ""
+    @State private var showReportDialog = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(levelColor(post.authorLevel).opacity(0.2))
-                        .frame(width: 36, height: 36)
-                    Text(String(post.authorName.prefix(1)))
-                        .font(RBFont.label(14))
-                        .foregroundStyle(levelColor(post.authorLevel))
-                }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        Text(post.authorName)
-                            .font(RBFont.label(13))
-                            .foregroundStyle(RBColor.textPrimary)
-                        Text(post.authorLevel.rawValue)
-                            .font(RBFont.caption(9))
-                            .foregroundStyle(levelColor(post.authorLevel))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(levelColor(post.authorLevel).opacity(0.15))
-                            .clipShape(Capsule())
-                    }
-                    Text(post.timeAgo)
-                        .font(RBFont.caption(10))
-                        .foregroundStyle(RBColor.textTertiary)
-                }
-
-                Spacer()
-            }
-
-            Text(post.content)
-                .font(RBFont.label(14))
-                .foregroundStyle(RBColor.textPrimary)
-
-            // 사진
-            if let photoData = post.photoData, let uiImage = UIImage(data: photoData) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: 240)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-
-            if let dist = post.distanceKm, let pace = post.paceFormatted {
-                HStack(spacing: 16) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "figure.run")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RBColor.accent)
-                        Text(String(format: "%.2f km", dist))
-                            .font(RBFont.metric(14))
-                            .foregroundStyle(RBColor.textPrimary)
-                    }
-                    HStack(spacing: 4) {
-                        Image(systemName: "speedometer")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RBColor.accent)
-                        Text(pace)
-                            .font(RBFont.metric(14))
-                            .foregroundStyle(RBColor.textPrimary)
-                    }
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RBColor.accent.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-
-            // Like & Comment buttons
-            HStack(spacing: 16) {
-                Button {
-                    withAnimation(.spring(response: 0.3)) {
-                        viewModel.toggleLike(postId: post.id)
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: post.isLiked ? "heart.fill" : "heart")
-                            .font(.system(size: 14))
-                            .foregroundStyle(post.isLiked ? RBColor.danger : RBColor.textSecondary)
-                        Text("\(post.likes)")
-                            .font(RBFont.caption(12))
-                    }
-                    .foregroundStyle(post.isLiked ? RBColor.danger : RBColor.textSecondary)
-                }
-
-                Button {
-                    withAnimation(.spring(response: 0.3)) {
-                        showComments.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: showComments ? "bubble.right.fill" : "bubble.right")
-                            .font(.system(size: 14))
-                        Text("\(post.comments.count)")
-                            .font(RBFont.caption(12))
-                    }
-                    .foregroundStyle(showComments ? RBColor.accent : RBColor.textSecondary)
-                }
-
-                Spacer()
-            }
-
-            // Comments section
-            if showComments {
-                VStack(alignment: .leading, spacing: 8) {
-                    Divider().background(Color.white.opacity(0.08))
-
-                    ForEach(post.comments) { comment in
-                        HStack(alignment: .top, spacing: 8) {
-                            ZStack {
-                                Circle()
-                                    .fill(levelColor(comment.authorLevel).opacity(0.2))
-                                    .frame(width: 24, height: 24)
-                                Text(String(comment.authorName.prefix(1)))
-                                    .font(RBFont.caption(10))
-                                    .foregroundStyle(levelColor(comment.authorLevel))
-                            }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 4) {
-                                    Text(comment.authorName)
-                                        .font(RBFont.label(11))
-                                        .foregroundStyle(RBColor.textPrimary)
-                                    Text(comment.timeAgo)
-                                        .font(RBFont.caption(9))
-                                        .foregroundStyle(RBColor.textTertiary)
-                                }
-                                Text(comment.content)
-                                    .font(RBFont.caption(12))
-                                    .foregroundStyle(RBColor.textSecondary)
-                            }
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        TextField("댓글 입력...", text: $newComment)
-                            .font(RBFont.label(13))
-                            .foregroundStyle(RBColor.textPrimary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(RBColor.cardBgLight)
-                            .clipShape(Capsule())
-
-                        Button {
-                            guard !newComment.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                            viewModel.addComment(postId: post.id, content: newComment)
-                            newComment = ""
-                        } label: {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(newComment.isEmpty ? RBColor.textTertiary : RBColor.accent)
-                                .frame(width: 36, height: 36)
-                                .background(RBColor.cardBgLight)
-                                .clipShape(Circle())
-                        }
-                        .disabled(newComment.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .padding(16)
-        .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
     }
 
-    private func levelColor(_ level: RunnerLevel) -> Color {
-        switch level {
-        case .starter: return .gray
-        case .bronze: return Color(red: 0.72, green: 0.45, blue: 0.2)
-        case .silver: return Color(white: 0.75)
-        case .gold: return Color(red: 1.0, green: 0.84, blue: 0.0)
-        case .laser: return RBColor.laserRed
-        case .beam: return RBColor.accent
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 14)
+
+            mediaBlock
+
+            VStack(alignment: .leading, spacing: 12) {
+                actionRow
+
+                if let dist = post.distanceKm, let pace = post.paceFormatted {
+                    HStack(spacing: 10) {
+                        statPill(icon: "figure.run", value: String(format: "%.2f km", dist))
+                        statPill(icon: "speedometer", value: pace)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(post.authorName)
+                        .font(RBFont.label(13))
+                        .foregroundStyle(RBColor.textPrimary)
+
+                    Text(post.content)
+                        .font(RBFont.label(14))
+                        .foregroundStyle(RBColor.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if !post.comments.isEmpty && !showComments {
+                    Button {
+                        withAnimation(.spring(response: 0.3)) {
+                            showComments = true
+                        }
+                    } label: {
+                        Text(appLanguage.text("댓글 \(post.comments.count)개 모두 보기", "View all \(post.comments.count) comments"))
+                            .font(RBFont.caption(11))
+                            .foregroundStyle(RBColor.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if showComments {
+                    commentsSection
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 16)
         }
+        .background(RBColor.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .confirmationDialog(
+            appLanguage.text("신고 사유를 선택하세요", "Select a reason"),
+            isPresented: $showReportDialog,
+            titleVisibility: .visible
+        ) {
+            Button(appLanguage.text("스팸", "Spam")) {
+                Task { await viewModel.reportPost(targetId: post.id, targetType: "feedPost", reason: "스팸") }
+            }
+            Button(appLanguage.text("욕설 / 혐오 발언", "Hate speech")) {
+                Task { await viewModel.reportPost(targetId: post.id, targetType: "feedPost", reason: "욕설/혐오 발언") }
+            }
+            Button(appLanguage.text("부적절한 콘텐츠", "Inappropriate content")) {
+                Task { await viewModel.reportPost(targetId: post.id, targetType: "feedPost", reason: "부적절한 콘텐츠") }
+            }
+            Button(appLanguage.text("허위 정보", "False information")) {
+                Task { await viewModel.reportPost(targetId: post.id, targetType: "feedPost", reason: "허위 정보") }
+            }
+            Button(appLanguage.text("취소", "Cancel"), role: .cancel) {}
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            ZStack {
+                Circle()
+                    .fill(communityLevelColor(post.authorLevel).opacity(0.2))
+                    .frame(width: 38, height: 38)
+                Text(String(post.authorName.prefix(1)))
+                    .font(RBFont.label(14))
+                    .foregroundStyle(communityLevelColor(post.authorLevel))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(post.authorName)
+                        .font(RBFont.label(13))
+                        .foregroundStyle(RBColor.textPrimary)
+                    Text(post.authorLevel.rawValue)
+                        .font(RBFont.caption(9))
+                        .foregroundStyle(communityLevelColor(post.authorLevel))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(communityLevelColor(post.authorLevel).opacity(0.15))
+                        .clipShape(Capsule())
+                }
+                Text(post.timeAgo)
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
+            }
+
+            Spacer()
+
+            // MARK: 신고 / 차단 메뉴
+            Menu {
+                Button(role: .destructive) {
+                    showReportDialog = true
+                } label: {
+                    Label(
+                        appLanguage.text("신고", "Report"),
+                        systemImage: "exclamationmark.bubble"
+                    )
+                }
+                Button(role: .destructive) {
+                    Task { await viewModel.blockUser(userId: post.authorId) }
+                } label: {
+                    Label(
+                        appLanguage.text("차단", "Block"),
+                        systemImage: "hand.raised"
+                    )
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14))
+                    .foregroundStyle(RBColor.textTertiary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mediaBlock: some View {
+        if let photoURL = post.photoURL, let url = URL(string: photoURL) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 300)
+                        .clipped()
+                case .failure:
+                    RoundedRectangle(cornerRadius: 0, style: .continuous)
+                        .fill(RBColor.cardBgLight)
+                        .frame(height: 220)
+                        .overlay(
+                            Text(appLanguage.text("사진을 불러오지 못했어요", "Couldn't load the photo"))
+                                .font(RBFont.caption(11))
+                                .foregroundStyle(RBColor.textTertiary)
+                        )
+                default:
+                    RoundedRectangle(cornerRadius: 0, style: .continuous)
+                        .fill(RBColor.cardBgLight)
+                        .frame(height: 220)
+                        .overlay(ProgressView().tint(RBColor.accent))
+                }
+            }
+        } else {
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(
+                    colors: [RBColor.accent.opacity(0.22), RBColor.cardBgLight],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(appLanguage.text("RUN SNAP", "RUN SNAP"))
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(RBColor.textTertiary)
+                        .tracking(1.2)
+                    Text(post.content)
+                        .font(RBFont.hero(22))
+                        .foregroundStyle(RBColor.textPrimary)
+                        .lineLimit(4)
+                }
+                .padding(18)
+            }
+            .frame(height: 220)
+        }
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 18) {
+            Button {
+                Task {
+                    await viewModel.toggleLike(postId: post.id)
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: post.isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: 15))
+                    Text("\(post.likes)")
+                        .font(RBFont.caption(12))
+                }
+                .foregroundStyle(post.isLiked ? RBColor.danger : RBColor.textSecondary)
+            }
+
+            Button {
+                withAnimation(.spring(response: 0.3)) {
+                    showComments.toggle()
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: showComments ? "bubble.right.fill" : "bubble.right")
+                        .font(.system(size: 15))
+                    Text("\(post.comments.count)")
+                        .font(RBFont.caption(12))
+                }
+                .foregroundStyle(showComments ? RBColor.accent : RBColor.textSecondary)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var commentsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().background(Color.white.opacity(0.08))
+
+            ForEach(post.comments) { comment in
+                HStack(alignment: .top, spacing: 8) {
+                    ZStack {
+                        Circle()
+                            .fill(communityLevelColor(comment.authorLevel).opacity(0.2))
+                            .frame(width: 24, height: 24)
+                        Text(String(comment.authorName.prefix(1)))
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(communityLevelColor(comment.authorLevel))
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(comment.authorName)
+                                .font(RBFont.label(11))
+                                .foregroundStyle(RBColor.textPrimary)
+                            Text(comment.timeAgo)
+                                .font(RBFont.caption(9))
+                                .foregroundStyle(RBColor.textTertiary)
+                        }
+                        Text(comment.content)
+                            .font(RBFont.caption(12))
+                            .foregroundStyle(RBColor.textSecondary)
+                    }
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField(appLanguage.text("댓글 입력...", "Write a comment..."), text: $newComment)
+                    .font(RBFont.label(13))
+                    .foregroundStyle(RBColor.textPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(RBColor.cardBgLight)
+                    .clipShape(Capsule())
+
+                Button {
+                    let trimmed = newComment.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    Task {
+                        await viewModel.addComment(postId: post.id, content: trimmed)
+                        newComment = ""
+                    }
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? RBColor.textTertiary : RBColor.accent)
+                        .frame(width: 36, height: 36)
+                        .background(RBColor.cardBgLight)
+                        .clipShape(Circle())
+                }
+                .disabled(newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func statPill(icon: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(RBColor.accent)
+            Text(value)
+                .font(RBFont.metric(13))
+                .foregroundStyle(RBColor.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(RBColor.accent.opacity(0.08))
+        .clipShape(Capsule())
     }
 }
 
@@ -804,8 +1809,8 @@ struct CreateMatePostView: View {
     @State private var manualMemberText = "4"
 
     private var isValid: Bool {
-        !title.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !location.trimmingCharacters(in: .whitespaces).isEmpty
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -815,10 +1820,8 @@ struct CreateMatePostView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        // 제목
                         inputField(title: "제목", placeholder: "러닝 메이트 모집 제목", text: $title)
 
-                        // ── 날짜 및 시간 (달력 기본 표시, 접기 가능) ──
                         VStack(alignment: .leading, spacing: 8) {
                             Button {
                                 withAnimation(.spring(response: 0.3)) {
@@ -863,7 +1866,6 @@ struct CreateMatePostView: View {
                         .background(RBColor.cardBg)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                        // ── 장소 검색 ──
                         VStack(alignment: .leading, spacing: 8) {
                             Text("모임 장소")
                                 .font(RBFont.caption(11))
@@ -892,7 +1894,6 @@ struct CreateMatePostView: View {
                             .background(RBColor.cardBgLight)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-                            // 검색 결과
                             if !locationSearchResults.isEmpty {
                                 VStack(spacing: 0) {
                                     ForEach(locationSearchResults, id: \.self) { item in
@@ -931,7 +1932,6 @@ struct CreateMatePostView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
 
-                            // 선택된 장소 표시
                             if !location.isEmpty {
                                 HStack(spacing: 6) {
                                     Image(systemName: "checkmark.circle.fill")
@@ -943,7 +1943,6 @@ struct CreateMatePostView: View {
                                 }
                             }
 
-                            // 미니 지도
                             Map(position: $mapCameraPosition) {
                                 Annotation("모임 장소", coordinate: selectedCoordinate) {
                                     Image(systemName: "mappin.circle.fill")
@@ -960,13 +1959,11 @@ struct CreateMatePostView: View {
                         .background(RBColor.cardBg)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                        // 목표 페이스 / 거리
                         HStack(spacing: 12) {
                             inputField(title: "목표 페이스", placeholder: "5'30\"", text: $targetPace)
                             inputField(title: "목표 거리", placeholder: "5km", text: $targetDistance)
                         }
 
-                        // ── 최대 인원 (+/- 버튼 + 직접 입력) ──
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("최대 인원")
@@ -1045,7 +2042,6 @@ struct CreateMatePostView: View {
                         .background(RBColor.cardBg)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                        // ── 상세 설명 (3줄 높이) ──
                         VStack(alignment: .leading, spacing: 6) {
                             Text("상세 설명")
                                 .font(RBFont.caption(11))
@@ -1064,35 +2060,32 @@ struct CreateMatePostView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                         RBPrimaryButton("모집 글 올리기", icon: "paperplane.fill") {
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "M/d (E)"
-                            formatter.locale = Locale(identifier: "ko_KR")
-                            let dateStr = formatter.string(from: date)
-                            let timeFormatter = DateFormatter()
-                            timeFormatter.dateFormat = "HH:mm"
-                            let timeStr = timeFormatter.string(from: date)
-
-                            let newPost = RunMatePost(
-                                authorName: "나",
-                                authorLevel: .starter,
-                                title: title,
-                                location: location,
-                                coordinate: selectedCoordinate,
-                                date: dateStr,
-                                time: timeStr,
-                                targetPace: targetPace,
-                                targetDistance: targetDistance,
-                                currentMembers: 1,
-                                maxMembers: maxMembers,
-                                description: description,
-                                timeAgo: "방금"
-                            )
-                            viewModel.addMatePost(newPost)
-                            dismiss()
+                            Task {
+                                let success = await viewModel.createMatePost(
+                                    title: title,
+                                    location: location,
+                                    coordinate: selectedCoordinate,
+                                    date: date,
+                                    targetPace: targetPace,
+                                    targetDistance: targetDistance,
+                                    maxMembers: maxMembers,
+                                    description: description
+                                )
+                                if success {
+                                    dismiss()
+                                }
+                            }
                         }
-                        .disabled(!isValid)
-                        .opacity(isValid ? 1.0 : 0.5)
+                        .disabled(!isValid || viewModel.isSubmitting)
+                        .opacity((isValid && !viewModel.isSubmitting) ? 1.0 : 0.5)
                         .padding(.top, 8)
+
+                        if let errorMessage = viewModel.errorMessage {
+                            Text(errorMessage)
+                                .font(RBFont.caption(11))
+                                .foregroundStyle(RBColor.danger)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
@@ -1110,10 +2103,10 @@ struct CreateMatePostView: View {
     }
 
     private var dateFormatted: String {
-        let f = DateFormatter()
-        f.dateFormat = "M/d (E) HH:mm"
-        f.locale = Locale(identifier: "ko_KR")
-        return f.string(from: date)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d (E) HH:mm"
+        formatter.locale = Locale(identifier: "ko_KR")
+        return formatter.string(from: date)
     }
 
     private func searchLocation() {
@@ -1172,7 +2165,7 @@ struct CreateFeedPostView: View {
     @State private var selectedPhotoData: Data?
 
     private var isValid: Bool {
-        !content.trimmingCharacters(in: .whitespaces).isEmpty
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -1182,7 +2175,6 @@ struct CreateFeedPostView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        // 내용 입력
                         VStack(alignment: .leading, spacing: 6) {
                             Text("내용")
                                 .font(RBFont.caption(11))
@@ -1201,7 +2193,6 @@ struct CreateFeedPostView: View {
                         .background(RBColor.cardBg)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                        // 사진 선택
                         VStack(alignment: .leading, spacing: 8) {
                             Text("사진 (선택)")
                                 .font(RBFont.caption(11))
@@ -1262,23 +2253,25 @@ struct CreateFeedPostView: View {
                         Spacer(minLength: 20)
 
                         RBPrimaryButton("게시하기", icon: "paperplane.fill") {
-                            let newPost = RunnerPost(
-                                authorName: "나",
-                                authorLevel: .starter,
-                                content: content,
-                                distanceKm: nil,
-                                paceFormatted: nil,
-                                timeAgo: "방금",
-                                likes: 0,
-                                comments: [],
-                                type: .freeBoard,
-                                photoData: selectedPhotoData
-                            )
-                            viewModel.addFeedPost(newPost)
-                            dismiss()
+                            Task {
+                                let success = await viewModel.createFeedPost(
+                                    content: content,
+                                    photoData: selectedPhotoData
+                                )
+                                if success {
+                                    dismiss()
+                                }
+                            }
                         }
-                        .disabled(!isValid)
-                        .opacity(isValid ? 1.0 : 0.5)
+                        .disabled(!isValid || viewModel.isSubmitting)
+                        .opacity((isValid && !viewModel.isSubmitting) ? 1.0 : 0.5)
+
+                        if let errorMessage = viewModel.errorMessage {
+                            Text(errorMessage)
+                                .font(RBFont.caption(11))
+                                .foregroundStyle(RBColor.danger)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
@@ -1293,6 +2286,17 @@ struct CreateFeedPostView: View {
                 }
             }
         }
+    }
+}
+
+private func communityLevelColor(_ level: RunnerLevel) -> Color {
+    switch level {
+    case .starter: return .gray
+    case .bronze: return Color(red: 0.72, green: 0.45, blue: 0.2)
+    case .silver: return Color(white: 0.75)
+    case .gold: return Color(red: 1.0, green: 0.84, blue: 0.0)
+    case .laser: return RBColor.laserRed
+    case .beam: return RBColor.accent
     }
 }
 

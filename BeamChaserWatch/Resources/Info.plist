@@ -30,6 +30,6 @@
 	<key>WKApplication</key>
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
-	<string>com.goldmine.beamchaser</string>
+	<string>com.haneum.beamchaser</string>
 </dict>
 </plist>

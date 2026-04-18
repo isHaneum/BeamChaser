@@ -55,7 +55,7 @@ struct RunDetailView: View {
 
                     // 메인 수치
                     HStack(spacing: 0) {
-                        MetricView(label: "거리", value: record.formattedDistance, unit: "")
+                        MetricView(label: "거리", value: String(format: "%.2f", record.totalDistanceMeters / 1000.0), unit: "km")
                             .frame(maxWidth: .infinity)
                         Rectangle().fill(RBColor.divider).frame(width: 1, height: 40)
                         MetricView(label: "시간", value: record.formattedDuration, unit: "")

@@ -93,7 +93,7 @@ struct RunnerPOVView: View {
                 }
                 
                 // 안내 텍스트
-                if !runSession.isTracking {
+                if !locationService.isTracking {
                     Text("시뮬레이션을 시작하려면\n아래 '내 속도'를 높이세요")
                         .font(RBFont.label(14))
                         .foregroundStyle(.white.opacity(0.6))
@@ -197,8 +197,8 @@ struct RunnerPOVView: View {
     
     private func setupInitialValues() {
         if let target = runSession.paceMaker.target {
-            targetPaceMin = target.minutes
-            targetPaceSec = target.seconds
+            targetPaceMin = target.minutesPerKm
+            targetPaceSec = target.secondsPerKm
         }
         mySpeedKmh = locationService.currentSpeed * 3.6
     }

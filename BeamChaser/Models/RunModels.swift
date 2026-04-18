@@ -20,7 +20,7 @@ struct RunRecord: Identifiable, Codable {
     }
 
     var formattedDistance: String {
-        String(format: "%.2f km", totalDistanceMeters / 1000.0)
+        String(format: "%.2fkm", totalDistanceMeters / 1000.0)
     }
 
     var formattedPace: String {
@@ -125,12 +125,14 @@ enum RunGoalType: String, CaseIterable, Codable {
     case none = "자유 러닝"
     case distance = "목표 거리"
     case time = "목표 시간"
+    case combined = "복합 목표"
 
     var icon: String {
         switch self {
         case .none: return "infinity"
         case .distance: return "flag.checkered"
         case .time: return "timer"
+        case .combined: return "scope"
         }
     }
 }
@@ -139,6 +141,9 @@ struct RunGoal: Codable {
     let type: RunGoalType
     let targetDistanceKm: Double?     // 목표 거리 (km)
     let targetTimeMinutes: Int?       // 목표 시간 (분)
+
+    var hasDistanceTarget: Bool { (targetDistanceKm ?? 0) > 0 }
+    var hasTimeTarget: Bool { (targetTimeMinutes ?? 0) > 0 }
 
     static let none = RunGoal(type: .none, targetDistanceKm: nil, targetTimeMinutes: nil)
 }

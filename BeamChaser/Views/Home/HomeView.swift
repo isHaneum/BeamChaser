@@ -4,6 +4,7 @@ import MapKit
 struct HomeView: View {
     @EnvironmentObject var bleService: BLEService
     @EnvironmentObject var locationService: LocationService
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     #if targetEnvironment(simulator)
     @State private var cameraPosition: MapCameraPosition = .camera(MapCamera(
         centerCoordinate: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780),
@@ -18,13 +19,17 @@ struct HomeView: View {
     #endif
     @State private var panelExpanded = true       // 패널 펼침/접힘
     @State private var dragOffset: CGFloat = 0    // 드래그 중 오프셋
-    @State private var showDeviceAlert = false    // 기기 미연결 경고
 
     // 접힌 상태: 로고 + 핸들만 보임
     private let collapsedHeight: CGFloat = 80
-    // TabBar 높이 (safe area bottom 포함)
-    private let tabBarSpace: CGFloat = 90
+    // 탭바 기준 높이 (safe area bottom은 geo에서 런타임에 더함)
+    private let tabBarBaseHeight: CGFloat = 100
     @State private var navigateToRunSetup = false
+    @State private var navigateToDeviceConnection = false
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
 
     var body: some View {
         NavigationStack {
@@ -52,7 +57,7 @@ struct HomeView: View {
 
                     // ── 하단 패널 ──
                     bottomPanel
-                        .padding(.bottom, tabBarSpace)  // 탭바 위에 위치
+                        .padding(.bottom, tabBarBaseHeight + geo.safeAreaInsets.bottom)  // 탭바 + safe area 위에 위치
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
             }
@@ -63,6 +68,12 @@ struct HomeView: View {
                     .padding(.top, 60)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $navigateToRunSetup) {
+                PaceSetupView()
+            }
+            .navigationDestination(isPresented: $navigateToDeviceConnection) {
+                DeviceConnectionView()
+            }
             .onAppear {
                 #if targetEnvironment(simulator)
                 // 시뮬레이터에서는 GPS 요청 건너뜀
@@ -236,52 +247,23 @@ struct HomeView: View {
                     Text("RUN BEAM")
                         .font(RBFont.hero(24))
                         .foregroundStyle(RBColor.textPrimary)
-                    Text("라인 레이저 페이스메이커")
+                    Text(appLanguage.text("라인 레이저 페이스메이커", "Line Laser Pacemaker"))
                         .font(RBFont.caption(12))
                         .foregroundStyle(RBColor.textSecondary)
                 }
                 Spacer()
-                NavigationLink(destination: DeviceConnectionView()) {
+                Button {
+                    openDeviceConnection()
+                } label: {
                     deviceChip
                 }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
 
-            // 시작 버튼
-            Button {
-                if bleService.isConnected {
-                    navigateToRunSetup = true
-                } else {
-                    showDeviceAlert = true
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 18, weight: .bold))
-                    Text("시작하기")
-                        .font(RBFont.label(17))
-                }
-                .foregroundStyle(RBColor.textPrimary)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(RBColor.accentGradient)
-                .clipShape(Capsule())
-            }
-            .navigationDestination(isPresented: $navigateToRunSetup) {
-                PaceSetupView()
-            }
+            actionButtons
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
-            .alert("BeamChaser 장치 미연결", isPresented: $showDeviceAlert) {
-                Button("장치 연결하기") {
-                    bleService.startScanning()
-                }
-                Button("단독 모드로 시작", role: .cancel) {
-                    navigateToRunSetup = true
-                }
-            } message: {
-                Text("BeamChaser 장치가 연결되지 않았습니다.\n레이저 페이스 가이드 없이 앱 단독 러닝 모드로 시작할 수 있습니다.")
-            }
         }
     }
 
@@ -298,7 +280,7 @@ struct HomeView: View {
             Circle()
                 .fill(bleService.isConnected ? RBColor.success : RBColor.danger)
                 .frame(width: 8, height: 8)
-            Text(bleService.isConnected ? "연결됨" : "미연결")
+            Text(bleService.isConnected ? appLanguage.text("연결됨", "Connected") : appLanguage.text("미연결", "Disconnected"))
                 .font(RBFont.caption(11))
                 .foregroundStyle(bleService.isConnected ? RBColor.textSecondary : RBColor.danger)
             if bleService.isConnected {
@@ -331,6 +313,59 @@ struct HomeView: View {
         .padding(.vertical, 8)
         .background(RBColor.cardBg)
         .clipShape(Capsule())
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 12) {
+            Button {
+                openDeviceConnection()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: bleService.isConnected ? "slider.horizontal.3" : "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(bleService.isConnected
+                         ? appLanguage.text("장치 관리", "Manage Device")
+                         : appLanguage.text("장치 연결", "Connect Device"))
+                        .font(RBFont.label(15))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(RBColor.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(RBColor.cardBg)
+                .overlay(
+                    Capsule()
+                        .stroke(bleService.isConnected ? RBColor.success.opacity(0.35) : RBColor.accent.opacity(0.35), lineWidth: 1)
+                )
+                .clipShape(Capsule())
+            }
+
+            Button {
+                navigateToRunSetup = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16, weight: .bold))
+                    Text(bleService.isConnected
+                         ? appLanguage.text("시작하기", "Start Run")
+                         : appLanguage.text("바로 시작", "Quick Start"))
+                        .font(RBFont.label(15))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(RBColor.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(RBColor.accentGradient)
+                .clipShape(Capsule())
+            }
+        }
+    }
+
+    private func openDeviceConnection() {
+        if !bleService.isConnected && !bleService.isScanning {
+            bleService.startScanning()
+        }
+        navigateToDeviceConnection = true
     }
 
     private func batteryIcon(percent: Int, isCharging: Bool) -> some View {

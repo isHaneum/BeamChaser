@@ -3,7 +3,12 @@ import SwiftUI
 struct DeviceConnectionView: View {
     @EnvironmentObject var bleService: BLEService
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @State private var manualAngle: Double = 85
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
 
     var body: some View {
         ZStack {
@@ -103,12 +108,18 @@ struct DeviceConnectionView: View {
                 .padding(.top, 8)
             }
         }
-        .navigationTitle("장치 연결")
+        .navigationTitle(appLanguage.text("장치 연결", "Device Connection"))
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard !bleService.isConnected else { return }
+            guard bleService.discoveredDevices.isEmpty else { return }
+            guard !bleService.isScanning else { return }
+            bleService.startScanning()
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if bleService.isConnected {
-                    Button("연결 해제") {
+                    Button(appLanguage.text("연결 해제", "Disconnect")) {
                         bleService.disconnect()
                     }
                     .foregroundStyle(RBColor.danger)
@@ -117,15 +128,15 @@ struct DeviceConnectionView: View {
                         Button {
                             bleService.startScanning()
                         } label: {
-                            Label("BeamChaser 검색", systemImage: "magnifyingglass")
+                            Label(appLanguage.text("BeamChaser 검색", "Find BeamChaser"), systemImage: "magnifyingglass")
                         }
                         Button {
                             bleService.startScanningAll()
                         } label: {
-                            Label("모든 BLE 장치 검색", systemImage: "antenna.radiowaves.left.and.right")
+                            Label(appLanguage.text("모든 BLE 장치 검색", "Scan All BLE Devices"), systemImage: "antenna.radiowaves.left.and.right")
                         }
                     } label: {
-                        Label("검색", systemImage: "magnifyingglass")
+                        Label(appLanguage.text("검색", "Scan"), systemImage: "magnifyingglass")
                     }
                     .tint(RBColor.accent)
                     .disabled(bleService.isScanning)
