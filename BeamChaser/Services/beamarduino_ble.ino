@@ -111,6 +111,11 @@ void setupIMU() {
 
 void updateIMU() {
     uint32_t now = millis();
+    if (lastIMUTime == 0) {
+        lastIMUTime = now;
+        return;
+    }
+
     float dt = (now - lastIMUTime) / 1000.0f;
     lastIMUTime = now;
 
@@ -195,11 +200,33 @@ void processBLECommand() {
                 targetPace_skm = (bleSS.read() << 8) | bleSS.read();
             }
             break;
+        case CMD_SET_ANGLE:
+            if (bleSS.available()) {
+                base_angle = constrain((float)bleSS.read(), 0.0f, 180.0f);
+                servoTilt.write((int)base_angle);
+            }
+            break;
+        case CMD_SET_ZONE:
+            if (bleSS.available()) {
+                uint8_t zone = bleSS.read();
+                if (zone <= ZONE_RED) {
+                    currentZone = (Zone)zone;
+                }
+            }
+            break;
         case CMD_SET_SENSITIVITY:
             if (bleSS.available()) sensitivity = bleSS.read();
             break;
         case CMD_SET_CALIBRATION:
             if (bleSS.available()) calibrationOffset = (int8_t)bleSS.read();
+            break;
+        case CMD_REQUEST_STATUS:
+            sendBLEStatus();
+            break;
+        case CMD_SET_DAY_MODE:
+            if (bleSS.available()) {
+                dayMode = bleSS.read() == 0x01;
+            }
             break;
         case CMD_START_RUN:
             mode = PACE_TRACK;

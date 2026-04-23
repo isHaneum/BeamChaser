@@ -44,13 +44,16 @@ HM-10은 단일 Characteristic(FFE1)으로 읽기/쓰기/알림을 모두 처리
 | `startRun` | `0x05` | 없음 | 러닝 시작 (GPS 트래킹 + 레이저 활성화) |
 | `stopRun` | `0x06` | 없음 | 러닝 종료 (레이저 끄기 + 대기) |
 | `requestStatus` | `0x07` | 없음 | 즉시 상태 패킷 요청 |
+| `setDayMode` | `0x08` | `0x00/0x01` | 주간 점멸 모드 설정 |
+| `setSensitivity` | `0x09` | `SS` (1바이트) | 짐벌 감도 설정 (0~255) |
+| `setCalibration` | `0x0A` | `OO` (1바이트) | 짐벌 캘리브레이션 오프셋 설정 (Int8) |
 
 ### 상태 패킷 (Arduino → 앱)
 
-10바이트 고정 길이 패킷:
+12바이트 고정 길이 패킷:
 ```
-[STX] [battery] [laserOn] [servo] [zone] [pace_H] [pace_L] [dist_H] [dist_L] [ETX]
- 0xAA   0-100     0/1     0-180   0-3    big-endian(초/km)  big-endian(m)      0x55
+[STX] [battery] [laserOn] [servo] [zone] [pitch] [pace_H] [pace_L] [dist_H] [dist_L] [spare] [ETX]
+ 0xAA   0-100     0/1     0-180   0-3   -90~90  big-endian(초/km)  big-endian(m)   0x00   0x55
 ```
 
 | 바이트 | 필드 | 범위 | 설명 |
@@ -60,9 +63,11 @@ HM-10은 단일 Characteristic(FFE1)으로 읽기/쓰기/알림을 모두 처리
 | 2 | laserOn | 0/1 | 레이저 활성 여부 |
 | 3 | servo | 0~180 | 현재 서보 각도 |
 | 4 | zone | 0~3 | 현재 Zone (0=없음, 1=파랑, 2=초록, 3=빨강) |
-| 5-6 | pace | big-endian | 현재 페이스 (초/km) |
-| 7-8 | distance | big-endian | 누적 거리 (m) |
-| 9 | ETX | `0x55` | 종료 마커 |
+| 5 | pitch | `Int8` | 실시간 기울기 (도) |
+| 6-7 | pace | big-endian | 현재 페이스 (초/km) |
+| 8-9 | distance | big-endian | 누적 거리 (m) |
+| 10 | spare | `0x00` | 예약 바이트 |
+| 11 | ETX | `0x55` | 종료 마커 |
 
 ---
 
@@ -75,7 +80,7 @@ HM-10은 단일 Characteristic(FFE1)으로 읽기/쓰기/알림을 모두 처리
 | `isConnected` | `Bool` | 장치 연결 여부 |
 | `discoveredDevices` | `[CBPeripheral]` | 발견된 BLE 장치 목록 |
 | `connectedDeviceName` | `String?` | 연결된 장치 이름 |
-| `deviceStatus` | `DeviceStatus?` | 장치 상태 (10바이트 패킷 파싱) |
+| `deviceStatus` | `DeviceStatus?` | 장치 상태 (12바이트 패킷 파싱) |
 | `connectionError` | `String?` | 연결 에러 메시지 |
 | `deviceZone` | `DeviceZone` | 현재 Zone |
 | `servoAngle` | `Int` | 현재 서보 각도 |
@@ -120,7 +125,7 @@ HM-10은 단일 Characteristic(FFE1)으로 읽기/쓰기/알림을 모두 처리
 
 ### 수신 데이터 파싱
 - `receiveBuffer`에 데이터 축적
-- STX(`0xAA`)를 찾아 10바이트 패킷 조립
+- STX(`0xAA`)를 찾아 12바이트 패킷 조립
 - ETX(`0x55`) 확인 후 `DeviceStatus` 파싱
 - 200바이트 초과 시 버퍼 클리어 (오버플로우 방지)
 
@@ -158,5 +163,5 @@ WAIT → RUNNING → WAIT
   - 목표보다 느림 → RED (빨강 레이저)
 
 ### BLE 상태 전송
-- 2초마다 상태 패킷 전송
-- BLE 명령 수신 즉시 처리 (서보 각도, 레이저, 페이스 등)
+- 1초마다 12바이트 상태 패킷 전송
+- BLE 명령 수신 즉시 처리 (서보 각도, Zone, 주간 모드, 짐벌 감도/영점 등)
