@@ -126,6 +126,10 @@ final class MockBLEService: BLEService {
         self.deviceZone = zone
     }
 
+    override func setDayMode(_ enabled: Bool) {
+        isDayModeEnabled = enabled
+    }
+
     override func startRun() {
         isRunning = true
         mockDistance = 0
@@ -143,5 +147,25 @@ final class MockBLEService: BLEService {
     override func setCalibration(_ offset: Int) {
         self.calibrationOffset = offset
         print("Mock: 캘리브레이션 오프셋 설정 -> \(offset)")
+    }
+
+    override func sendPhoneGPS(_ payload: PhoneGPSPayload) {
+        let command = LaserCommand.phoneGPS(payload)
+        lastPhoneGPSPayload = payload
+        lastPhoneGPSCommandHex = command.data.hexString
+        lastSentCommandHex = command.data.hexString
+    }
+
+    override func sendPhoneControl(_ payload: PhoneControlPayload) {
+        let command = LaserCommand.phoneControl(payload)
+        lastPhoneControlPayload = payload
+        lastPhoneControlCommandHex = command.data.hexString
+        lastSentCommandHex = command.data.hexString
+    }
+}
+
+private extension Data {
+    var hexString: String {
+        map { String(format: "%02X", $0) }.joined(separator: " ")
     }
 }

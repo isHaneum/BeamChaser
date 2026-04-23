@@ -2,8 +2,24 @@ import SwiftUI
 import MapKit
 
 struct RunMapView: View {
+    enum PresentationMode {
+        case follow
+        case routeOverview
+    }
+
     @EnvironmentObject var locationService: LocationService
     @EnvironmentObject var runSession: RunSessionManager
+
+    let presentationMode: PresentationMode
+    let showsRecenterButton: Bool
+
+    init(
+        presentationMode: PresentationMode = .follow,
+        showsRecenterButton: Bool = true
+    ) {
+        self.presentationMode = presentationMode
+        self.showsRecenterButton = showsRecenterButton
+    }
 
     #if targetEnvironment(simulator)
     @State private var cameraPosition: MapCameraPosition = .automatic
@@ -12,80 +28,175 @@ struct RunMapView: View {
     #endif
 
     var body: some View {
-        Map(position: $cameraPosition) {
-            // 사용자 현재 위치
-            #if targetEnvironment(simulator)
-            if let loc = locationService.currentLocation {
-                Annotation("", coordinate: loc.coordinate) {
-                    Circle()
-                        .fill(.blue)
-                        .frame(width: 14, height: 14)
-                        .overlay(Circle().stroke(.white, lineWidth: 2))
-                        .shadow(color: .blue.opacity(0.5), radius: 6)
+        ZStack(alignment: .topTrailing) {
+            Map(position: $cameraPosition, interactionModes: .all) {
+                // 사용자 현재 위치
+                #if targetEnvironment(simulator)
+                if let loc = locationService.currentLocation {
+                    Annotation("", coordinate: loc.coordinate) {
+                        Circle()
+                            .fill(.blue)
+                            .frame(width: 14, height: 14)
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                            .shadow(color: .blue.opacity(0.5), radius: 6)
+                    }
+                }
+                #else
+                UserAnnotation()
+                #endif
+
+                // 러닝 경로 — 오렌지 글로우
+                if locationService.routePoints.count >= 2 {
+                    MapPolyline(coordinates: locationService.routePoints.map(\.coordinate))
+                        .stroke(
+                            Color(red: 1.0, green: 0.58, blue: 0.12).opacity(0.30),
+                            style: StrokeStyle(lineWidth: 18, lineCap: .round, lineJoin: .round)
+                        )
+                    MapPolyline(coordinates: locationService.routePoints.map(\.coordinate))
+                        .stroke(
+                            Color(red: 1.0, green: 0.73, blue: 0.32),
+                            style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round)
+                        )
+                    MapPolyline(coordinates: locationService.routePoints.map(\.coordinate))
+                        .stroke(
+                            Color(red: 1.0, green: 0.42, blue: 0.18),
+                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round, lineJoin: .round)
+                        )
+                }
+
+                if let laserPosition = estimatedLaserPosition {
+                    Annotation("", coordinate: laserPosition) {
+                        LaserDot(size: 16, glowRadius: 12)
+                    }
+                }
+
+                if let start = locationService.routePoints.first {
+                    Annotation("", coordinate: start.coordinate) {
+                        Circle()
+                            .fill(RBColor.success)
+                            .frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                    }
+                }
+
+                if let last = locationService.routePoints.last, locationService.routePoints.count >= 2 {
+                    Annotation("", coordinate: last.coordinate) {
+                        Circle()
+                            .fill(RBColor.laserRed)
+                            .frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                    }
                 }
             }
-            #else
-            UserAnnotation()
-            #endif
-
-            // 러닝 경로 — 네온 그린 글로우
-            if locationService.routePoints.count >= 2 {
-                // 글로우 배경
-                MapPolyline(coordinates: locationService.routePoints.map(\.coordinate))
-                    .stroke(
-                        Color(red: 0.0, green: 1.0, blue: 0.5).opacity(0.3),
-                        style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round)
-                    )
-                // 메인 경로 라인
-                MapPolyline(coordinates: locationService.routePoints.map(\.coordinate))
-                    .stroke(
-                        Color(red: 0.0, green: 1.0, blue: 0.5),
-                        style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
-                    )
+            .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
+            .mapControls {
+                MapCompass()
+                MapScaleView()
+            }
+            .onAppear {
+                updateCamera(
+                    animated: false,
+                    forceRouteFit: presentationMode == .routeOverview && locationService.routePoints.count >= 2
+                )
+            }
+            .onReceive(locationService.$currentLocation) { _ in
+                guard presentationMode == .follow else { return }
+                updateCamera()
+            }
+            .onReceive(locationService.$routePoints) { _ in
+                guard presentationMode == .routeOverview else { return }
+                updateCamera(animated: true, forceRouteFit: locationService.routePoints.count >= 2)
             }
 
-            // 레이저(가상 주자) 위치
-            if let laserPosition = estimatedLaserPosition {
-                Annotation("", coordinate: laserPosition) {
-                    LaserDot(size: 16, glowRadius: 12)
+            if showsRecenterButton {
+                Button {
+                    updateCamera(animated: true, forceRouteFit: locationService.routePoints.count >= 2)
+                } label: {
+                    Image(systemName: presentationMode == .routeOverview ? "map" : "location.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(RBColor.accent)
+                        .frame(width: 46, height: 46)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
                 }
-            }
-
-            // 시작점
-            if let start = locationService.routePoints.first {
-                Annotation("", coordinate: start.coordinate) {
-                    Circle()
-                        .fill(RBColor.success)
-                        .frame(width: 10, height: 10)
-                        .overlay(Circle().stroke(.white, lineWidth: 2))
-                }
+                .padding(.top, 72)
+                .padding(.trailing, 16)
             }
         }
-        .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
-        .mapControls {}  // 오버레이와 충돌 방지 — 컨트롤 최소화
+    }
+
+    private func updateCamera(animated: Bool = true, forceRouteFit: Bool = false) {
+        if forceRouteFit, let region = routeRegion {
+            if animated {
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    cameraPosition = .region(region)
+                }
+            } else {
+                cameraPosition = .region(region)
+            }
+            return
+        }
+
+        let fallbackCoordinate: CLLocationCoordinate2D
         #if targetEnvironment(simulator)
-        .onAppear {
-            let coord = locationService.simulatedCoordinate
-            cameraPosition = .camera(MapCamera(
-                centerCoordinate: coord,
-                distance: 800,
-                heading: 0,
-                pitch: 0
-            ))
-        }
-        .onChange(of: locationService.routePoints.count) { _, _ in
-            if let loc = locationService.currentLocation {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    cameraPosition = .camera(MapCamera(
-                        centerCoordinate: loc.coordinate,
-                        distance: 800,
-                        heading: 0,
-                        pitch: 0
-                    ))
-                }
-            }
-        }
+        fallbackCoordinate = locationService.simulatedCoordinate
+        #else
+        fallbackCoordinate = locationService.currentLocation?.coordinate
+            ?? routeRegion?.center
+            ?? CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780)
         #endif
+
+        let headingDegrees: Double
+        #if targetEnvironment(simulator)
+        headingDegrees = locationService.simulatorHeading * 180.0 / .pi
+        #else
+        headingDegrees = locationService.currentLocation?.course ?? 0
+        #endif
+
+        let distance = max(180, min(520, max(locationService.totalDistanceMeters * 0.45, 240)))
+
+        let camera = MapCamera(
+            centerCoordinate: locationService.currentLocation?.coordinate ?? fallbackCoordinate,
+            distance: distance,
+            heading: headingDegrees >= 0 ? headingDegrees : 0,
+            pitch: 42
+        )
+
+        if animated {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                cameraPosition = .camera(camera)
+            }
+        } else {
+            cameraPosition = .camera(camera)
+        }
+    }
+
+    private var routeRegion: MKCoordinateRegion? {
+        let coordinates = locationService.routePoints.map(\.coordinate)
+        guard !coordinates.isEmpty else { return nil }
+
+        let latitudes = coordinates.map(\.latitude)
+        let longitudes = coordinates.map(\.longitude)
+
+        guard
+            let minLat = latitudes.min(),
+            let maxLat = latitudes.max(),
+            let minLon = longitudes.min(),
+            let maxLon = longitudes.max()
+        else {
+            return nil
+        }
+
+        return MKCoordinateRegion(
+            center: CLLocationCoordinate2D(
+                latitude: (minLat + maxLat) / 2,
+                longitude: (minLon + maxLon) / 2
+            ),
+            span: MKCoordinateSpan(
+                latitudeDelta: max((maxLat - minLat) * 1.7, 0.0035),
+                longitudeDelta: max((maxLon - minLon) * 1.7, 0.0035)
+            )
+        )
     }
 
     /// 목표 페이스 기준 레이저의 추정 위치

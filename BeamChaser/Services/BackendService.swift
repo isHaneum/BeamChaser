@@ -16,6 +16,7 @@ struct FirestoreUser: Codable {
     var totalRuns: Int
     var totalTimeSeconds: Double
     var heightCm: Double?
+    var photoURL: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -48,8 +49,169 @@ struct FirestoreRunRecord: Codable, Identifiable {
     let goalType: String?
     let goalDistanceKm: Double?
     let goalTimeMinutes: Int?
+    let averageCadenceSpm: Int?
+    let averageHeartRateBpm: Int?
     let routeEncoded: String?
     let createdAt: Date
+}
+
+struct FirestoreChallengeProgress: Codable, Identifiable {
+    @DocumentID var docId: String?
+    var id: String
+    let userId: String
+    let periodType: String
+    let periodStart: Date
+    let periodEnd: Date
+    let targetRunCount: Int
+    let targetDistanceKm: Double
+    let completedRunCount: Int
+    let completedDistanceKm: Double
+    let pacedRunCount: Int
+    let goalHitCount: Int
+    let updatedAt: Date
+
+    var runProgress: Double {
+        guard targetRunCount > 0 else { return 0 }
+        return min(1.0, Double(completedRunCount) / Double(targetRunCount))
+    }
+
+    var distanceProgress: Double {
+        guard targetDistanceKm > 0 else { return 0 }
+        return min(1.0, completedDistanceKm / targetDistanceKm)
+    }
+
+    var combinedProgress: Double {
+        (runProgress + distanceProgress) / 2.0
+    }
+
+    func title(_ appLanguage: AppLanguage = .current) -> String {
+        switch periodType {
+        case "weekly":
+            return appLanguage.text("주간 챌린지", "Weekly Challenge")
+        default:
+            return appLanguage.text("월간 챌린지", "Monthly Challenge")
+        }
+    }
+
+    func periodLabel(_ appLanguage: AppLanguage = .current) -> String {
+        let calendar = Calendar.current
+        switch periodType {
+        case "weekly":
+            let startMonth = calendar.component(.month, from: periodStart)
+            let startDay = calendar.component(.day, from: periodStart)
+            let endDate = calendar.date(byAdding: .day, value: -1, to: periodEnd) ?? periodEnd
+            let endMonth = calendar.component(.month, from: endDate)
+            let endDay = calendar.component(.day, from: endDate)
+            if appLanguage.isEnglish {
+                return String(format: "%d/%d - %d/%d", startMonth, startDay, endMonth, endDay)
+            }
+            return "\(startMonth)월 \(startDay)일 - \(endMonth)월 \(endDay)일"
+        default:
+            let month = calendar.component(.month, from: periodStart)
+            let year = calendar.component(.year, from: periodStart)
+            return appLanguage.isEnglish ? "\(year).\(month)" : "\(year)년 \(month)월"
+        }
+    }
+
+    static func weeklySnapshot(
+        userId: String,
+        records: [RunRecord],
+        monthlyGoal: MonthlyGoal,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> FirestoreChallengeProgress {
+        let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now)
+            ?? DateInterval(start: calendar.startOfDay(for: now), duration: 7 * 24 * 60 * 60)
+        let weeklyRecords = validRecords(in: weekInterval, from: records)
+        let targetRunCount = max(3, Int(ceil(Double(monthlyGoal.targetRunCount) / 4.0)))
+        let rawDistanceTarget = monthlyGoal.targetDistanceKm / 4.0
+        let targetDistanceKm = max(10.0, (rawDistanceTarget * 10).rounded() / 10)
+
+        return FirestoreChallengeProgress(
+            id: challengeId(type: "weekly", date: weekInterval.start, calendar: calendar),
+            userId: userId,
+            periodType: "weekly",
+            periodStart: weekInterval.start,
+            periodEnd: weekInterval.end,
+            targetRunCount: targetRunCount,
+            targetDistanceKm: targetDistanceKm,
+            completedRunCount: weeklyRecords.count,
+            completedDistanceKm: weeklyRecords.reduce(0) { $0 + $1.distanceKm },
+            pacedRunCount: weeklyRecords.filter { $0.targetPace != nil }.count,
+            goalHitCount: weeklyRecords.filter(didHitGoal).count,
+            updatedAt: now
+        )
+    }
+
+    static func monthlySnapshot(
+        userId: String,
+        records: [RunRecord],
+        monthlyGoal: MonthlyGoal,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> FirestoreChallengeProgress {
+        let monthInterval = calendar.dateInterval(of: .month, for: now)
+            ?? DateInterval(start: calendar.startOfDay(for: now), duration: 30 * 24 * 60 * 60)
+        let monthlyRecords = validRecords(in: monthInterval, from: records)
+
+        return FirestoreChallengeProgress(
+            id: challengeId(type: "monthly", date: monthInterval.start, calendar: calendar),
+            userId: userId,
+            periodType: "monthly",
+            periodStart: monthInterval.start,
+            periodEnd: monthInterval.end,
+            targetRunCount: monthlyGoal.targetRunCount,
+            targetDistanceKm: monthlyGoal.targetDistanceKm,
+            completedRunCount: monthlyRecords.count,
+            completedDistanceKm: monthlyRecords.reduce(0) { $0 + $1.distanceKm },
+            pacedRunCount: monthlyRecords.filter { $0.targetPace != nil }.count,
+            goalHitCount: monthlyRecords.filter(didHitGoal).count,
+            updatedAt: now
+        )
+    }
+
+    private static func challengeId(type: String, date: Date, calendar: Calendar) -> String {
+        let year = calendar.component(.year, from: date)
+        switch type {
+        case "weekly":
+            let week = calendar.component(.weekOfYear, from: date)
+            return "weekly-\(year)-\(week)"
+        default:
+            let month = calendar.component(.month, from: date)
+            return "monthly-\(year)-\(month)"
+        }
+    }
+
+    private static func validRecords(in interval: DateInterval, from records: [RunRecord]) -> [RunRecord] {
+        records.filter {
+            $0.totalDistanceMeters > 100 &&
+            $0.startDate >= interval.start &&
+            $0.startDate < interval.end
+        }
+    }
+
+    private static func didHitGoal(_ record: RunRecord) -> Bool {
+        if let runGoal = record.runGoal {
+            switch runGoal.type {
+            case .distance:
+                return record.distanceKm >= (runGoal.targetDistanceKm ?? .greatestFiniteMagnitude)
+            case .time:
+                return record.elapsedSeconds >= Double((runGoal.targetTimeMinutes ?? 0) * 60)
+            case .combined:
+                let hitDistance = record.distanceKm >= (runGoal.targetDistanceKm ?? .greatestFiniteMagnitude)
+                let hitTime = record.elapsedSeconds >= Double((runGoal.targetTimeMinutes ?? 0) * 60)
+                return hitDistance || hitTime
+            case .none:
+                break
+            }
+        }
+
+        if let delta = record.goalDeltaSeconds {
+            return delta <= 0
+        }
+
+        return false
+    }
 }
 
 struct FirestoreMatePost: Codable, Identifiable {
@@ -79,9 +241,21 @@ struct FirestoreFeedPost: Codable, Identifiable {
     let authorId: String
     let authorName: String
     let authorLevel: String
+    let headline: String?
     let content: String
+    let runId: String?
+    let runStartedAt: Date?
     let distanceKm: Double?
+    let durationFormatted: String?
     let paceFormatted: String?
+    let averageHeartRateBpm: Int?
+    let averageSpeedKmh: Double?
+    let cadenceSpm: Int?
+    let elevationGainMeters: Double?
+    let caloriesKcal: Double?
+    let targetPaceFormatted: String?
+    let goalDeltaSeconds: Int?
+    let selectedMetricKeys: [String]?
     let photoURL: String?
     var likedUserIds: [String]
     var comments: [FirestoreComment]
@@ -103,6 +277,17 @@ struct FirestoreFriendLink: Codable, Identifiable {
     var id: String
     let friendId: String
     let createdAt: Date
+}
+
+struct FirestoreFriendRequest: Codable, Identifiable {
+    @DocumentID var docId: String?
+    var id: String
+    let fromUserId: String
+    let toUserId: String
+    let status: String
+    let source: String
+    let createdAt: Date
+    let respondedAt: Date?
 }
 
 struct FirestoreReport: Codable, Identifiable {
@@ -148,6 +333,8 @@ final class BackendService: ObservableObject {
     }
 
     @Published var currentUser: FirestoreUser?
+    @Published var currentWeeklyChallenge: FirestoreChallengeProgress?
+    @Published var currentMonthlyChallenge: FirestoreChallengeProgress?
     @Published var isLoading = false
     @Published var error: String?
 
@@ -160,6 +347,7 @@ final class BackendService: ObservableObject {
     private var matePostsCollection: CollectionReference? { db?.collection("matePosts") }
     private var feedPostsCollection: CollectionReference? { db?.collection("feedPosts") }
     private var reportsCollection: CollectionReference? { db?.collection("reports") }
+    private var friendRequestsCollection: CollectionReference? { db?.collection("friendRequests") }
 
     private func friendsCollection(for userId: String) -> CollectionReference? {
         usersCollection?.document(userId).collection("friends")
@@ -167,6 +355,10 @@ final class BackendService: ObservableObject {
 
     private func blockedUsersCollection(for userId: String) -> CollectionReference? {
         usersCollection?.document(userId).collection("blockedUsers")
+    }
+
+    private func challengeProgressCollection(for userId: String) -> CollectionReference? {
+        usersCollection?.document(userId).collection("challengeProgress")
     }
 
     // MARK: - Auth
@@ -284,6 +476,28 @@ final class BackendService: ObservableObject {
         }
     }
 
+    // MARK: - Profile Photo Upload
+
+    func uploadProfilePhoto(_ image: UIImage) async throws -> String {
+        guard let uid = userId else { throw makeError("로그인이 필요합니다.") }
+        guard let storage = storage else { throw makeError("Storage가 설정되지 않았습니다.") }
+
+        guard let data = image.jpegData(compressionQuality: 0.75) else {
+            throw makeError("이미지 변환에 실패했습니다.")
+        }
+
+        let ref = storage.reference().child("profilePhotos/\(uid).jpg")
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+
+        _ = try await ref.putDataAsync(data, metadata: metadata)
+        let downloadURL = try await ref.downloadURL()
+        let urlString = downloadURL.absoluteString
+
+        await updateUserProfile(["photoURL": urlString])
+        return urlString
+    }
+
     func fetchUsers(limit: Int = 100) async throws -> [FirestoreUser] {
         guard let usersCollection = usersCollection else { return [] }
         let snapshot = try await usersCollection
@@ -333,48 +547,122 @@ final class BackendService: ObservableObject {
         return snapshot.documents.compactMap { try? $0.data(as: FirestoreFriendLink.self) }
     }
 
-    func addFriend(friendId: String) async throws {
-        guard
-            let uid = userId,
-            uid != friendId,
-            let db = db,
-            let currentFriendsCollection = friendsCollection(for: uid),
-            let targetFriendsCollection = friendsCollection(for: friendId)
-        else { return }
+    func fetchFriendRequests() async throws -> [FirestoreFriendRequest] {
+        guard let uid = userId, let friendRequestsCollection else { return [] }
 
-        let encoder = Firestore.Encoder()
-        let now = Date()
-        let currentLink = FirestoreFriendLink(id: friendId, friendId: friendId, createdAt: now)
-        let targetLink = FirestoreFriendLink(id: uid, friendId: uid, createdAt: now)
+        async let incomingTask = friendRequestsCollection
+            .whereField("toUserId", isEqualTo: uid)
+            .getDocuments()
+        async let outgoingTask = friendRequestsCollection
+            .whereField("fromUserId", isEqualTo: uid)
+            .getDocuments()
 
-        let batch = db.batch()
-        try batch.setData(
-            encoder.encode(currentLink),
-            forDocument: currentFriendsCollection.document(friendId),
-            merge: true
+        let incomingSnapshot = try await incomingTask
+        let outgoingSnapshot = try await outgoingTask
+        var requestsById: [String: FirestoreFriendRequest] = [:]
+
+        for snapshot in [incomingSnapshot, outgoingSnapshot] {
+            for document in snapshot.documents {
+                if let request = try? document.data(as: FirestoreFriendRequest.self) {
+                    requestsById[request.id] = request
+                }
+            }
+        }
+
+        return requestsById.values.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func sendFriendRequest(toUserId: String, source: String = "manual") async throws {
+        guard let uid = userId, uid != toUserId, let friendRequestsCollection else {
+            throw makeError(AppLanguage.current.text("친구 요청은 로그인 후 사용할 수 있어요.", "Friend requests are available after sign-in."))
+        }
+
+        let requestId = friendRequestKey(uid, toUserId)
+        let ref = friendRequestsCollection.document(requestId)
+        let snapshot = try await ref.getDocument()
+
+        if let existing = try? snapshot.data(as: FirestoreFriendRequest.self) {
+            switch existing.status {
+            case "pending":
+                throw makeError(AppLanguage.current.text("이미 요청이 진행 중입니다.", "A friend request is already pending."))
+            case "accepted":
+                throw makeError(AppLanguage.current.text("이미 친구로 연결되어 있어요.", "You're already connected as friends."))
+            default:
+                throw makeError(AppLanguage.current.text("이 사용자와의 이전 요청 기록이 있어 지금은 새 요청을 보낼 수 없어요.", "There is a previous request record with this user, so a new request can't be sent right now."))
+            }
+        }
+
+        let request = FirestoreFriendRequest(
+            id: requestId,
+            fromUserId: uid,
+            toUserId: toUserId,
+            status: "pending",
+            source: source,
+            createdAt: Date(),
+            respondedAt: nil
         )
-        try batch.setData(
-            encoder.encode(targetLink),
-            forDocument: targetFriendsCollection.document(uid),
-            merge: true
-        )
-        try await batch.commit()
+        try ref.setData(from: request)
+    }
+
+    func respondToFriendRequest(requestId: String, accept: Bool) async throws {
+        guard let uid = userId, let friendRequestsCollection else {
+            throw makeError(AppLanguage.current.text("친구 요청 응답은 로그인 후 사용할 수 있어요.", "Responding to a friend request is available after sign-in."))
+        }
+
+        let ref = friendRequestsCollection.document(requestId)
+        let snapshot = try await ref.getDocument()
+        guard let request = try? snapshot.data(as: FirestoreFriendRequest.self) else {
+            throw makeError(AppLanguage.current.text("친구 요청을 찾지 못했어요.", "Couldn't find the friend request."))
+        }
+        guard request.toUserId == uid else {
+            throw makeError(AppLanguage.current.text("이 요청에 응답할 권한이 없어요.", "You don't have permission to respond to this request."))
+        }
+        guard request.status == "pending" else {
+            throw makeError(AppLanguage.current.text("이미 처리된 친구 요청입니다.", "This friend request has already been handled."))
+        }
+
+        try await ref.updateData([
+            "status": accept ? "accepted" : "rejected",
+            "respondedAt": Timestamp(date: Date()),
+        ])
     }
 
     // MARK: - Run Records
 
     func saveRunRecord(_ record: FirestoreRunRecord) async throws {
-        guard let runsCollection = runsCollection, let usersCollection = usersCollection else { return }
-        try runsCollection.document(record.id).setData(from: record)
+        try await syncRunRecord(record)
+    }
 
-        // 누적 통계 업데이트
-        guard let uid = userId else { return }
+    func syncRunRecord(_ record: FirestoreRunRecord) async throws {
+        guard let runsCollection = runsCollection, let usersCollection = usersCollection else { return }
+
+        let reference = runsCollection.document(record.id)
+        let snapshot = try await reference.getDocument()
+        let isNewRecord = !snapshot.exists
+
+        try reference.setData(from: record, merge: true)
+
+        guard isNewRecord, let uid = userId else { return }
+
         try await usersCollection.document(uid).updateData([
             "totalDistanceKm": FieldValue.increment(record.totalDistanceMeters / 1000.0),
             "totalRuns": FieldValue.increment(Int64(1)),
             "totalTimeSeconds": FieldValue.increment(record.elapsedSeconds),
             "updatedAt": FieldValue.serverTimestamp(),
         ])
+    }
+
+    func syncRunRecords(_ records: [RunRecord]) async {
+        guard let uid = userId else { return }
+
+        for record in records where record.totalDistanceMeters > 100 {
+            let firestoreRecord = FirestoreRunRecord.from(record: record, userId: uid)
+            do {
+                try await syncRunRecord(firestoreRecord)
+            } catch {
+                self.error = "러닝 기록 동기화 실패: \(error.localizedDescription)"
+            }
+        }
     }
 
     func fetchRunHistory(limit: Int = 50) async throws -> [FirestoreRunRecord] {
@@ -385,6 +673,56 @@ final class BackendService: ObservableObject {
             .limit(to: limit)
             .getDocuments()
         return snapshot.documents.compactMap { try? $0.data(as: FirestoreRunRecord.self) }
+    }
+
+    func syncChallengeProgress(records: [RunRecord], monthlyGoal: MonthlyGoal) async {
+        guard let uid = userId, let challengeProgressCollection = challengeProgressCollection(for: uid) else { return }
+
+        let weekly = FirestoreChallengeProgress.weeklySnapshot(
+            userId: uid,
+            records: records,
+            monthlyGoal: monthlyGoal
+        )
+        let monthly = FirestoreChallengeProgress.monthlySnapshot(
+            userId: uid,
+            records: records,
+            monthlyGoal: monthlyGoal
+        )
+
+        do {
+            try challengeProgressCollection.document(weekly.id).setData(from: weekly, merge: true)
+            try challengeProgressCollection.document(monthly.id).setData(from: monthly, merge: true)
+            currentWeeklyChallenge = weekly
+            currentMonthlyChallenge = monthly
+        } catch {
+            self.error = "챌린지 동기화 실패: \(error.localizedDescription)"
+        }
+    }
+
+    func loadCurrentChallengeProgress(monthlyGoal: MonthlyGoal) async {
+        guard let uid = userId, let challengeProgressCollection = challengeProgressCollection(for: uid) else { return }
+
+        let weeklyId = FirestoreChallengeProgress.weeklySnapshot(
+            userId: uid,
+            records: [],
+            monthlyGoal: monthlyGoal
+        ).id
+        let monthlyId = FirestoreChallengeProgress.monthlySnapshot(
+            userId: uid,
+            records: [],
+            monthlyGoal: monthlyGoal
+        ).id
+
+        do {
+            async let weeklyDocument = challengeProgressCollection.document(weeklyId).getDocument()
+            async let monthlyDocument = challengeProgressCollection.document(monthlyId).getDocument()
+
+            let (weeklySnapshot, monthlySnapshot) = try await (weeklyDocument, monthlyDocument)
+            currentWeeklyChallenge = try? weeklySnapshot.data(as: FirestoreChallengeProgress.self)
+            currentMonthlyChallenge = try? monthlySnapshot.data(as: FirestoreChallengeProgress.self)
+        } catch {
+            self.error = "챌린지 로드 실패: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Mate Posts
@@ -466,11 +804,11 @@ final class BackendService: ObservableObject {
 
     // MARK: - Photo Upload
 
-    func uploadPhoto(data: Data, path: String) async throws -> String {
+    func uploadPhoto(data: Data, path: String, contentType: String = "image/jpeg") async throws -> String {
         guard let storage = storage else { throw NSError(domain: "BackendService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase not configured"]) }
         let ref = storage.reference().child(path)
         let metadata = StorageMetadata()
-        metadata.contentType = "image/jpeg"
+        metadata.contentType = contentType
         _ = try await ref.putDataAsync(data, metadata: metadata)
         let url = try await ref.downloadURL()
         return url.absoluteString
@@ -581,6 +919,13 @@ final class BackendService: ObservableObject {
         if let feedPostsCollection {
             let snapshot = try await feedPostsCollection.whereField("authorId", isEqualTo: uid).getDocuments()
             references.append(contentsOf: snapshot.documents.map(\.reference))
+        }
+
+        if let friendRequestsCollection {
+            let incomingSnapshot = try await friendRequestsCollection.whereField("toUserId", isEqualTo: uid).getDocuments()
+            let outgoingSnapshot = try await friendRequestsCollection.whereField("fromUserId", isEqualTo: uid).getDocuments()
+            references.append(contentsOf: incomingSnapshot.documents.map(\.reference))
+            references.append(contentsOf: outgoingSnapshot.documents.map(\.reference))
         }
 
         try await deleteDocuments(references)
@@ -741,5 +1086,76 @@ final class BackendService: ObservableObject {
             code: -1,
             userInfo: [NSLocalizedDescriptionKey: message]
         )
+    }
+
+    private func friendRequestKey(_ firstUserId: String, _ secondUserId: String) -> String {
+        [firstUserId, secondUserId].sorted().joined(separator: "_")
+    }
+}
+
+extension FirestoreRunRecord {
+    static func from(record: RunRecord, userId: String) -> FirestoreRunRecord {
+        FirestoreRunRecord(
+            docId: record.id.uuidString,
+            id: record.id.uuidString,
+            userId: userId,
+            startDate: record.startDate,
+            endDate: record.endDate ?? record.startDate.addingTimeInterval(record.elapsedSeconds),
+            totalDistanceMeters: record.totalDistanceMeters,
+            elapsedSeconds: record.elapsedSeconds,
+            targetPaceMinutes: record.targetPace?.minutesPerKm,
+            targetPaceSeconds: record.targetPace?.secondsPerKm,
+            goalType: record.runGoal?.type.rawValue,
+            goalDistanceKm: record.runGoal?.targetDistanceKm,
+            goalTimeMinutes: record.runGoal?.targetTimeMinutes,
+            averageCadenceSpm: record.averageCadenceSpm,
+            averageHeartRateBpm: record.averageHeartRateBpm,
+            routeEncoded: encodeRoute(record.routePoints),
+            createdAt: record.startDate
+        )
+    }
+
+    func toRunRecord() -> RunRecord? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+
+        return RunRecord(
+            id: uuid,
+            startDate: startDate,
+            endDate: endDate,
+            routePoints: decodeRoute(routeEncoded),
+            totalDistanceMeters: totalDistanceMeters,
+            elapsedSeconds: elapsedSeconds,
+            targetPace: targetPaceMinutes.flatMap { minutes in
+                targetPaceSeconds.map { seconds in
+                    PaceTarget(minutesPerKm: minutes, secondsPerKm: seconds)
+                }
+            },
+            runGoal: goalType.flatMap { rawValue in
+                RunGoalType(rawValue: rawValue).map {
+                    RunGoal(type: $0, targetDistanceKm: goalDistanceKm, targetTimeMinutes: goalTimeMinutes)
+                }
+            },
+            intervalProgram: nil,
+            averageCadenceSpm: averageCadenceSpm,
+            averageHeartRateBpm: averageHeartRateBpm
+        )
+    }
+
+    private static func encodeRoute(_ routePoints: [RoutePoint]) -> String? {
+        guard !routePoints.isEmpty else { return nil }
+        guard let data = try? JSONEncoder().encode(routePoints) else { return nil }
+        return data.base64EncodedString()
+    }
+
+    private func decodeRoute(_ encodedRoute: String?) -> [RoutePoint] {
+        guard
+            let encodedRoute,
+            let data = Data(base64Encoded: encodedRoute),
+            let decoded = try? JSONDecoder().decode([RoutePoint].self, from: data)
+        else {
+            return []
+        }
+
+        return decoded
     }
 }

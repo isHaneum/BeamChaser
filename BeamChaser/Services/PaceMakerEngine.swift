@@ -32,9 +32,9 @@ final class PaceMakerEngine: ObservableObject {
         case ahead, onPace, behind
         var label: String {
             switch self {
-            case .ahead: return "앞서는 중"
-            case .onPace: return "페이스 유지"
-            case .behind: return "뒤처지는 중"
+            case .ahead: return AppLanguage.current.text("앞서는 중", "Ahead")
+            case .onPace: return AppLanguage.current.text("페이스 유지", "On Pace")
+            case .behind: return AppLanguage.current.text("뒤처지는 중", "Behind")
             }
         }
         var color: String {
@@ -42,6 +42,13 @@ final class PaceMakerEngine: ObservableObject {
             case .ahead: return "blue"
             case .onPace: return "green"
             case .behind: return "red"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .ahead: return "hare.fill"
+            case .onPace: return "checkmark.circle.fill"
+            case .behind: return "tortoise.fill"
             }
         }
     }
@@ -160,10 +167,14 @@ final class PaceMakerEngine: ObservableObject {
         let absGap = abs(gapSeconds)
         let direction = gapSeconds >= 0 ? "+" : "-"
         if absGap < 60 {
-            return String(format: "%@%.0f초", direction, absGap)
+            return AppLanguage.current.isEnglish
+                ? String(format: "%@%.0fs", direction, absGap)
+                : String(format: "%@%.0f초", direction, absGap)
         }
         let min = Int(absGap) / 60
         let sec = Int(absGap) % 60
-        return String(format: "%@%d분 %02d초", direction, min, sec)
+        return AppLanguage.current.isEnglish
+            ? String(format: "%@%dm %02ds", direction, min, sec)
+            : String(format: "%@%d분 %02d초", direction, min, sec)
     }
 }

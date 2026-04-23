@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreBluetooth
 
 struct DeviceConnectionView: View {
     @EnvironmentObject var bleService: BLEService
@@ -42,9 +43,23 @@ struct DeviceConnectionView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
+                    if let hint = bleService.scanHint {
+                        HStack(spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(RBColor.accent)
+                            Text(hint)
+                                .font(RBFont.caption(13))
+                                .foregroundStyle(RBColor.textSecondary)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RBColor.accent.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
                     // 검색 헤더
                     HStack {
-                        Text("검색된 장치")
+                        Text(appLanguage.localized("검색된 장치"))
                             .font(RBFont.caption(11))
                             .foregroundStyle(RBColor.textTertiary)
                             .textCase(.uppercase)
@@ -63,10 +78,10 @@ struct DeviceConnectionView: View {
                             Image(systemName: "antenna.radiowaves.left.and.right")
                                 .font(.system(size: 40))
                                 .foregroundStyle(RBColor.textTertiary)
-                            Text("장치를 검색해주세요")
+                            Text(appLanguage.localized("장치를 검색해주세요"))
                                 .font(RBFont.label(15))
                                 .foregroundStyle(RBColor.textSecondary)
-                            Text("HM-10 BLE 모듈이 켜져 있는지 확인하세요")
+                            Text(appLanguage.localized("HM-10 BLE 모듈이 켜져 있는지 확인하세요"))
                                 .font(RBFont.caption(12))
                                 .foregroundStyle(RBColor.textTertiary)
                         }
@@ -88,12 +103,18 @@ struct DeviceConnectionView: View {
                                         .foregroundStyle(RBColor.accent)
                                         .frame(width: 32)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(device.name ?? "알 수 없는 장치")
+                                        Text(displayName(for: device))
                                             .font(RBFont.label(15))
                                             .foregroundStyle(RBColor.textPrimary)
-                                        Text(String(device.identifier.uuidString.prefix(8)) + "...")
+                                        Text(deviceSubtitle(for: device))
                                             .font(RBFont.caption(11))
                                             .foregroundStyle(RBColor.textTertiary)
+                                        if let serviceSummary = advertisedServiceSummary(for: device) {
+                                            Text(serviceSummary)
+                                                .font(RBFont.caption(10))
+                                                .foregroundStyle(RBColor.textTertiary)
+                                                .lineLimit(1)
+                                        }
                                     }
                                     Spacer()
                                 }
@@ -107,6 +128,7 @@ struct DeviceConnectionView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
             }
+            .contentMargins(.bottom, RBLayout.scrollBottomInset, for: .scrollContent)
         }
         .navigationTitle(appLanguage.text("장치 연결", "Device Connection"))
         .navigationBarTitleDisplayMode(.inline)
@@ -148,38 +170,83 @@ struct DeviceConnectionView: View {
     // MARK: - 연결된 장치 카드
 
     private var connectedCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 24))
-                .foregroundStyle(RBColor.success)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(bleService.connectedDeviceName ?? "BeamChaser")
-                    .font(RBFont.label(16))
-                    .foregroundStyle(RBColor.textPrimary)
-                Text("연결됨")
-                    .font(RBFont.caption(12))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 24))
                     .foregroundStyle(RBColor.success)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(bleService.connectedDeviceName ?? "BeamChaser")
+                        .font(RBFont.label(16))
+                        .foregroundStyle(RBColor.textPrimary)
+                    Text(appLanguage.text("연결됨", "Connected"))
+                        .font(RBFont.caption(12))
+                        .foregroundStyle(RBColor.success)
+                }
+
+                Spacer()
+
+                if let status = bleService.deviceStatus {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(appLanguage.text("배터리 \(status.batteryPercent)%", "Battery \(status.batteryPercent)%"))
+                            .font(RBFont.caption(12))
+                            .foregroundStyle(RBColor.textSecondary)
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(zoneColor(status.zone))
+                                .frame(width: 8, height: 8)
+                            Text(status.zone.label)
+                                .font(RBFont.caption(11))
+                                .foregroundStyle(RBColor.textSecondary)
+                        }
+                        Text(appLanguage.text("레이저 \(status.isLaserActive ? "ON" : "OFF")", "Laser \(status.isLaserActive ? "ON" : "OFF")"))
+                            .font(RBFont.caption(11))
+                            .foregroundStyle(status.isLaserActive ? RBColor.accent : RBColor.textTertiary)
+                    }
+                }
             }
 
-            Spacer()
+            if let characteristicUUID = bleService.activeCharacteristicUUID {
+                Text("CHAR \(characteristicUUID)")
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
+                    .lineLimit(1)
+            }
 
-            if let status = bleService.deviceStatus {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("배터리 \(status.batteryPercent)%")
-                        .font(RBFont.caption(12))
-                        .foregroundStyle(RBColor.textSecondary)
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(zoneColor(status.zone))
-                            .frame(width: 8, height: 8)
-                        Text(status.zone.label)
-                            .font(RBFont.caption(11))
-                            .foregroundStyle(RBColor.textSecondary)
+            if let control = bleService.lastPhoneControlPayload {
+                Text("APP CTRL \(Double(control.speedCentimetersPerSecond) / 100, specifier: "%.2f")m/s · \(control.zone.label) · SERVO \(control.servoAngleDegrees)°")
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
+                    .lineLimit(1)
+            }
+
+            if bleService.lastSentCommandHex != nil || bleService.lastReceivedPacketHex != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let gps = bleService.lastPhoneGPSCommandHex {
+                        Text("GPS TX \(gps)")
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(RBColor.textTertiary)
+                            .lineLimit(1)
                     }
-                    Text("레이저 \(status.isLaserActive ? "ON" : "OFF")")
-                        .font(RBFont.caption(11))
-                        .foregroundStyle(status.isLaserActive ? RBColor.accent : RBColor.textTertiary)
+                    if let control = bleService.lastPhoneControlCommandHex {
+                        Text("CTRL TX \(control)")
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(RBColor.textTertiary)
+                            .lineLimit(1)
+                    }
+                    if let tx = bleService.lastSentCommandHex {
+                        Text("TX \(tx)")
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(RBColor.textTertiary)
+                            .lineLimit(1)
+                    }
+                    if let rx = bleService.lastReceivedPacketHex {
+                        Text("RX \(rx)")
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(RBColor.textTertiary)
+                            .lineLimit(1)
+                    }
                 }
             }
         }
@@ -199,7 +266,7 @@ struct DeviceConnectionView: View {
             HStack {
                 Image(systemName: "angle")
                     .foregroundStyle(RBColor.accent)
-                Text("서보 각도")
+                Text(appLanguage.localized("서보 각도"))
                     .font(RBFont.label(15))
                     .foregroundStyle(RBColor.textPrimary)
                 Spacer()
@@ -243,7 +310,7 @@ struct DeviceConnectionView: View {
             HStack {
                 Image(systemName: "light.max")
                     .foregroundStyle(RBColor.accent)
-                Text("레이저 테스트")
+                Text(appLanguage.localized("레이저 테스트"))
                     .font(RBFont.label(15))
                     .foregroundStyle(RBColor.textPrimary)
                 Spacer()
@@ -253,7 +320,7 @@ struct DeviceConnectionView: View {
                 Button {
                     bleService.setZone(.blue)
                 } label: {
-                    Text("파랑")
+                    Text(appLanguage.localized("파랑"))
                         .font(RBFont.label(13))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -265,7 +332,7 @@ struct DeviceConnectionView: View {
                 Button {
                     bleService.setZone(.green)
                 } label: {
-                    Text("초록")
+                    Text(appLanguage.localized("초록"))
                         .font(RBFont.label(13))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -277,7 +344,7 @@ struct DeviceConnectionView: View {
                 Button {
                     bleService.setZone(.red)
                 } label: {
-                    Text("빨강")
+                    Text(appLanguage.localized("빨강"))
                         .font(RBFont.label(13))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -291,7 +358,7 @@ struct DeviceConnectionView: View {
                 Button {
                     bleService.turnLaserOn()
                 } label: {
-                    Text("레이저 ON")
+                    Text(appLanguage.localized("레이저 ON"))
                         .font(RBFont.label(13))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -303,7 +370,7 @@ struct DeviceConnectionView: View {
                 Button {
                     bleService.turnLaserOff()
                 } label: {
-                    Text("레이저 OFF")
+                    Text(appLanguage.localized("레이저 OFF"))
                         .font(RBFont.label(13))
                         .foregroundStyle(RBColor.textPrimary)
                         .frame(maxWidth: .infinity)
@@ -327,6 +394,29 @@ struct DeviceConnectionView: View {
         case .green: return .green
         case .red:   return .red
         }
+    }
+
+    private func displayName(for device: CBPeripheral) -> String {
+        if let metadataName = bleService.discoveredDeviceMetadata[device.identifier]?.displayName {
+            return metadataName
+        }
+        return device.name ?? appLanguage.localized("알 수 없는 장치")
+    }
+
+    private func deviceSubtitle(for device: CBPeripheral) -> String {
+        let id = String(device.identifier.uuidString.prefix(8)) + "..."
+        if let rssi = bleService.discoveredDeviceMetadata[device.identifier]?.rssi {
+            return "\(id) · RSSI \(rssi)dBm"
+        }
+        return id
+    }
+
+    private func advertisedServiceSummary(for device: CBPeripheral) -> String? {
+        guard let serviceUUIDs = bleService.discoveredDeviceMetadata[device.identifier]?.advertisedServiceUUIDs,
+              !serviceUUIDs.isEmpty else {
+            return nil
+        }
+        return "ADV " + serviceUUIDs.prefix(2).joined(separator: ", ")
     }
 }
 

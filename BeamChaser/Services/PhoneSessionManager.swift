@@ -17,14 +17,21 @@ final class PhoneSessionManager: NSObject, ObservableObject {
     @Published var isWatchReachable = false
 
     // MARK: - Private
-    private let session = WCSession.default
+    private let session: WCSession? = {
+        #if targetEnvironment(simulator)
+        return nil
+        #else
+        guard WCSession.isSupported() else { return nil }
+        return WCSession.default
+        #endif
+    }()
     private var syncTimer: Timer?
     private var lastHeartRate: Int = 0
 
     // MARK: - Init
     override init() {
         super.init()
-        guard WCSession.isSupported() else { return }
+        guard let session else { return }
         session.delegate = self
         session.activate()
     }
@@ -46,6 +53,7 @@ final class PhoneSessionManager: NSObject, ObservableObject {
     // MARK: - 스냅샷 빌드 & 전송
 
     private func pushSnapshot() {
+        guard let session else { return }
         guard isWatchReachable else { return }
         guard let rs = runSession, let ls = locationService, let ble = bleService else { return }
 
@@ -58,6 +66,7 @@ final class PhoneSessionManager: NSObject, ObservableObject {
         snap.elapsedSeconds      = rs.elapsedSeconds
         snap.distanceMeters      = ls.totalDistanceMeters
         snap.heartRate           = lastHeartRate
+        snap.currentCadenceSpm   = Int(ls.currentCadenceSpm.rounded())
         snap.gpsAccuracy         = ls.currentLocation?.horizontalAccuracy ?? -1
         snap.deviceBattery       = ble.deviceStatus?.batteryPercent ?? 0
         snap.deviceConnected     = ble.isConnected
@@ -90,7 +99,14 @@ final class PhoneSessionManager: NSObject, ObservableObject {
         case .finishRun:
             // finishRun은 route/distance를 locationService에서 가져옴
             if let ls = locationService, let rs = runSession {
-                rs.finishRun(routePoints: ls.routePoints, totalDistance: ls.totalDistanceMeters)
+                let cadence = rs.elapsedSeconds > 0
+                    ? Int((Double(ls.sessionStepCount) / rs.elapsedSeconds * 60.0).rounded())
+                    : nil
+                rs.finishRun(
+                    routePoints: ls.routePoints,
+                    totalDistance: ls.totalDistanceMeters,
+                    averageCadenceSpm: cadence
+                )
             }
         case .adjustServo:
             // value: delta (-5 ~ +5)
@@ -150,7 +166,9 @@ extension PhoneSessionManager: WCSessionDelegate {
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
+        #if !targetEnvironment(simulator)
         session.activate()
+        #endif
     }
 
     nonisolated func session(_ session: WCSession,

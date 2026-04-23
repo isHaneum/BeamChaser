@@ -20,6 +20,9 @@
 | 09 | [BLE 장치 통신](09_BLE_장치_통신.md) | HW 구성, 프로토콜, BLEService, Arduino 펌웨어 |
 | 10 | [서비스 엔진](10_서비스_엔진.md) | Location, RunSession, PaceMaker, HealthKit, Auth |
 | 11 | [데이터 모델](11_데이터_모델.md) | 전체 데이터 구조체/열거형 정의 |
+| 12 | [앱스토어 출시 가이드](12_앱스토어_출시_가이드.md) | 제출 준비, 심사 메모, QA, 업로드 절차 |
+| 13 | [UI 콘텐츠 규칙](UI_CONTENT_RULES.md) | 언어, 설명 문구, 공유 카드 UX 규칙 |
+| 13 | [UI 콘텐츠 규칙](UI_CONTENT_RULES.md) | 언어, 설명 문구, 공유 카드 UX 규칙 |
 
 ---
 

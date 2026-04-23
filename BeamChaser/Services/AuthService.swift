@@ -1,6 +1,7 @@
 import AuthenticationServices
 import CryptoKit
 import FirebaseCore
+import FirebaseAuth
 import Security
 import SwiftUI
 #if canImport(GoogleSignIn)
@@ -21,6 +22,7 @@ final class AuthService: ObservableObject {
 
     private let userDefaultsKey = "apple_user_id"
     private var currentNonce: String?
+    private var firebaseAuthHandle: AuthStateDidChangeListenerHandle?
 
     var isGoogleSignInAvailable: Bool {
         #if canImport(GoogleSignIn)
@@ -31,6 +33,7 @@ final class AuthService: ObservableObject {
     }
 
     init() {
+        // UserDefaults 기반 Apple 로그인 복원
         if let savedID = UserDefaults.standard.string(forKey: userDefaultsKey) {
             userIdentifier = savedID
             isSignedIn = true
@@ -40,6 +43,44 @@ final class AuthService: ObservableObject {
                 await refreshAppleCredentialState(for: savedID)
             }
             #endif
+        }
+
+        // Firebase Auth 상태 리스너 — 앱 재시작 시 Firebase 세션이 살아있으면 자동 복원
+        // (Google 로그인 또는 UserDefaults가 없어도 Firebase 세션이 유효한 경우)
+        if FirebaseApp.app() != nil {
+            firebaseAuthHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+                guard let self else { return }
+                Task { @MainActor in
+                    if let user {
+                        if !self.isSignedIn {
+                            // Firebase는 로그인되어 있지만 AuthService는 모르는 상태 → 동기화
+                            self.isSignedIn = true
+                            if self.userName == nil {
+                                self.userName = user.displayName
+                                    ?? UserDefaults.standard.string(forKey: "apple_user_name")
+                            }
+                            if self.userEmail == nil {
+                                self.userEmail = user.email
+                                    ?? UserDefaults.standard.string(forKey: "apple_user_email")
+                            }
+                            if self.userIdentifier == nil {
+                                self.userIdentifier = user.uid
+                            }
+                        }
+                    } else {
+                        // Firebase도 로그아웃 → AuthService도 로그아웃
+                        if self.isSignedIn {
+                            self.clearLocalSession()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    deinit {
+        if let handle = firebaseAuthHandle {
+            Auth.auth().removeStateDidChangeListener(handle)
         }
     }
 
@@ -64,7 +105,7 @@ final class AuthService: ObservableObject {
         switch result {
         case .success(let auth):
             guard let credential = auth.credential as? ASAuthorizationAppleIDCredential else {
-                signInError = "Apple 로그인 응답을 해석하지 못했습니다."
+                signInError = AppLanguage.current.text("Apple 로그인 응답을 해석하지 못했습니다.", "Couldn't read the Apple sign-in response.")
                 return
             }
 
@@ -92,7 +133,7 @@ final class AuthService: ObservableObject {
                     let identityTokenData = credential.identityToken,
                     let identityToken = String(data: identityTokenData, encoding: .utf8)
                 else {
-                    signInError = "Apple 로그인은 성공했지만 Firebase 인증에 필요한 토큰을 받지 못했습니다."
+                    signInError = AppLanguage.current.text("Apple 로그인은 성공했지만 Firebase 인증에 필요한 토큰을 받지 못했습니다.", "Apple sign-in succeeded, but the Firebase token was missing.")
                     return
                 }
 
@@ -101,10 +142,10 @@ final class AuthService: ObservableObject {
                         idToken: identityToken,
                         nonce: nonce,
                         fullName: credential.fullName,
-                        fallbackDisplayName: userName ?? "러너"
+                        fallbackDisplayName: userName ?? AppLanguage.current.text("러너", "Runner")
                     )
                 } catch {
-                    signInError = "Apple 로그인은 성공했지만 Firebase 로그인에 실패했습니다: \(error.localizedDescription)"
+                    signInError = AppLanguage.current.text("Apple 로그인은 성공했지만 Firebase 로그인에 실패했습니다: \(error.localizedDescription)", "Apple sign-in succeeded, but Firebase sign-in failed: \(error.localizedDescription)")
                 }
             }
 
@@ -115,12 +156,12 @@ final class AuthService: ObservableObject {
                 signInError = nil // 사용자 취소는 에러 표시 안 함
             } else if nsError.code == 1000 {
                 #if targetEnvironment(simulator)
-                signInError = "시뮬레이터에서는 Apple 로그인을 사용할 수 없습니다. 실제 기기에서 테스트해주세요."
+                signInError = AppLanguage.current.text("시뮬레이터에서는 Apple 로그인을 사용할 수 없습니다. 실제 기기에서 테스트해주세요.", "Apple sign-in is not available in the simulator. Test on a real device.")
                 #else
-                signInError = "Apple 로그인에 실패했습니다. 앱의 Sign in with Apple capability, Apple ID 로그인 상태, Firebase Apple 공급자 설정을 확인해주세요."
+                signInError = AppLanguage.current.text("Apple 로그인에 실패했습니다. 앱의 Sign in with Apple capability, Apple ID 로그인 상태, Firebase Apple 공급자 설정을 확인해주세요.", "Apple sign-in failed. Check the Sign in with Apple capability, Apple ID status, and Firebase Apple provider configuration.")
                 #endif
             } else {
-                signInError = "Apple 로그인 실패: \(error.localizedDescription)"
+                signInError = AppLanguage.current.text("Apple 로그인 실패: \(error.localizedDescription)", "Apple sign-in failed: \(error.localizedDescription)")
             }
             print("Apple 로그인 실패: \(error.localizedDescription)")
         }
@@ -135,15 +176,15 @@ final class AuthService: ObservableObject {
 
         #if canImport(GoogleSignIn)
         guard let presentingViewController = await Self.topViewController() else {
-            signInError = "Google 로그인 화면을 띄울 수 없습니다."
+            signInError = AppLanguage.current.text("Google 로그인 화면을 띄울 수 없습니다.", "Couldn't present the Google sign-in screen.")
             return
         }
         guard FirebaseApp.app() != nil else {
-            signInError = "Firebase가 설정되지 않았습니다. GoogleService-Info.plist 설정을 먼저 확인해주세요."
+            signInError = AppLanguage.current.text("Firebase가 설정되지 않았습니다. GoogleService-Info.plist 설정을 먼저 확인해주세요.", "Firebase is not configured. Check GoogleService-Info.plist first.")
             return
         }
-        guard let clientID = FirebaseApp.app()?.options.clientID else {
-            signInError = "Google 클라이언트 ID를 찾지 못했습니다."
+        guard let clientID = googleClientID else {
+            signInError = AppLanguage.current.text("Google 클라이언트 ID를 찾지 못했습니다.", "Couldn't find the Google client ID.")
             return
         }
 
@@ -161,36 +202,52 @@ final class AuthService: ObservableObject {
                         continuation.resume(throwing: NSError(
                             domain: "AuthService",
                             code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "Google 로그인 결과가 비어 있습니다."]
+                            userInfo: [NSLocalizedDescriptionKey: AppLanguage.current.text("Google 로그인 결과가 비어 있습니다.", "The Google sign-in result was empty.")]
                         ))
                     }
                 }
             }
 
             guard let backendService else {
-                signInError = "Google 로그인 백엔드 서비스가 연결되지 않았습니다."
+                signInError = AppLanguage.current.text("Google 로그인 백엔드 서비스가 연결되지 않았습니다.", "The backend service for Google sign-in is not connected.")
                 return
             }
             guard let idToken = result.user.idToken?.tokenString else {
-                signInError = "Google ID 토큰을 가져오지 못했습니다."
+                signInError = AppLanguage.current.text("Google ID 토큰을 가져오지 못했습니다.", "Couldn't get the Google ID token.")
                 return
             }
 
             try await backendService.signInWithGoogle(
                 idToken: idToken,
                 accessToken: result.user.accessToken.tokenString,
-                fallbackDisplayName: result.user.profile?.name ?? "러너"
+                fallbackDisplayName: result.user.profile?.name ?? AppLanguage.current.text("러너", "Runner")
             )
 
             userIdentifier = backendService.userId
             userName = backendService.currentUser?.displayName ?? result.user.profile?.name
             userEmail = backendService.currentUser?.email ?? result.user.profile?.email
+            // Google 로그인도 앱 재시작 후 UserDefaults로 복원 가능하도록 저장
+            if let uid = backendService.userId {
+                UserDefaults.standard.set(uid, forKey: userDefaultsKey)
+            }
+            if let name = userName {
+                UserDefaults.standard.set(name, forKey: "apple_user_name")
+            }
+            if let email = userEmail {
+                UserDefaults.standard.set(email, forKey: "apple_user_email")
+            }
             isSignedIn = true
         } catch {
-            signInError = "Google 로그인 실패: \(error.localizedDescription)"
+            let nsError = error as NSError
+            // -5 = 사용자가 취소(GIDSignInError.canceled), 취소는 에러 표시 안 함
+            if nsError.code == -5 {
+                signInError = nil
+            } else {
+                signInError = AppLanguage.current.text("Google 로그인 실패: \(error.localizedDescription)", "Google sign-in failed: \(error.localizedDescription)")
+            }
         }
         #else
-        signInError = "Google 로그인 SDK가 아직 프로젝트에 추가되지 않았습니다."
+        signInError = AppLanguage.current.text("Google 로그인 SDK가 아직 프로젝트에 추가되지 않았습니다.", "The Google sign-in SDK is not yet added to the project.")
         #endif
     }
 
@@ -200,7 +257,7 @@ final class AuthService: ObservableObject {
         do {
             try backendService?.signOut()
         } catch {
-            signInError = "로그아웃 실패: \(error.localizedDescription)"
+            signInError = AppLanguage.current.text("로그아웃 실패: \(error.localizedDescription)", "Sign-out failed: \(error.localizedDescription)")
         }
         clearLocalSession()
     }
@@ -292,6 +349,23 @@ final class AuthService: ObservableObject {
             buffer += UUID().uuidString.replacingOccurrences(of: "-", with: "")
         }
         return String(buffer.prefix(length))
+    }
+
+    private var googleClientID: String? {
+        if let clientID = FirebaseApp.app()?.options.clientID, !clientID.isEmpty {
+            return clientID
+        }
+
+        guard
+            let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+            let config = NSDictionary(contentsOfFile: path),
+            let clientID = config["CLIENT_ID"] as? String,
+            !clientID.isEmpty
+        else {
+            return nil
+        }
+
+        return clientID
     }
 
     @MainActor

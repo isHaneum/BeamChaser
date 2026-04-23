@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import PhotosUI
 import UIKit
+import AuthenticationServices
 
 // MARK: - Community Data Models
 
@@ -10,9 +11,20 @@ struct RunnerPost: Identifiable {
     let authorId: String
     let authorName: String
     let authorLevel: RunnerLevel
+    let headline: String?
     let content: String
+    let runStartedAt: Date?
     let distanceKm: Double?
+    let durationFormatted: String?
     let paceFormatted: String?
+    let averageHeartRateBpm: Int?
+    let averageSpeedKmh: Double?
+    let cadenceSpm: Int?
+    let elevationGainMeters: Double?
+    let caloriesKcal: Double?
+    let targetPaceFormatted: String?
+    let goalDeltaSeconds: Int?
+    let selectedMetricKeys: [RunShareMetricKey]
     let createdAt: Date
     var likes: Int
     var comments: [PostComment]
@@ -28,6 +40,10 @@ struct RunnerPost: Identifiable {
 
     var timeAgo: String {
         CommunityFormatter.relativeString(from: createdAt)
+    }
+
+    var isRunResult: Bool {
+        type == .runResult && distanceKm != nil
     }
 }
 
@@ -74,8 +90,25 @@ struct CommunityFriend: Identifiable {
     let totalRuns: Int
 
     var recordSummary: String {
-        "\(totalRuns)회 · \(String(format: "%.1f", totalDistanceKm))km"
+        AppLanguage.current.text(
+            "\(totalRuns)회 · \(String(format: "%.1f", totalDistanceKm))km",
+            "\(totalRuns) runs · \(String(format: "%.1f", totalDistanceKm))km"
+        )
     }
+}
+
+struct CommunityFriendRequest: Identifiable {
+    let id: String
+    let friend: CommunityFriend
+    let source: String
+    let createdAt: Date
+    let isIncoming: Bool
+}
+
+struct ContactMatchedFriend: Identifiable {
+    let id: String
+    let friend: CommunityFriend
+    let contactName: String
 }
 
 enum CommunityFeedScope: String, CaseIterable {
@@ -84,9 +117,9 @@ enum CommunityFeedScope: String, CaseIterable {
 }
 
 enum CommunityFormatter {
-    static func relativeString(from date: Date) -> String {
+    static func relativeString(from date: Date, appLanguage: AppLanguage = .current) -> String {
         let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.locale = appLanguage.isEnglish ? Locale(identifier: "en") : Locale(identifier: "ko_KR")
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
     }
@@ -117,6 +150,9 @@ final class CommunityViewModel: ObservableObject {
     @Published var feedPosts: [RunnerPost] = []
     @Published var suggestedFriends: [CommunityFriend] = []
     @Published var friends: [CommunityFriend] = []
+    @Published var incomingFriendRequests: [CommunityFriendRequest] = []
+    @Published var outgoingFriendRequests: [CommunityFriendRequest] = []
+    @Published var contactMatches: [ContactMatchedFriend] = []
     @Published var feedScope: CommunityFeedScope = .all {
         didSet { applyFeedFilter() }
     }
@@ -129,7 +165,10 @@ final class CommunityViewModel: ObservableObject {
     private var allFeedPosts: [RunnerPost] = []
     private var currentUserId: String?
     private var friendIds: Set<String> = []
+    private var pendingRequestUserIds: Set<String> = []
     private var userDirectory: [String: FirestoreUser] = [:]
+    private var rankedUsers: [FirestoreUser] = []
+    private var contactEmailDirectory: [String: String] = [:]
 
     func configure(backendService: BackendService) {
         guard self.backendService !== backendService else { return }
@@ -143,10 +182,34 @@ final class CommunityViewModel: ObservableObject {
         if (nsError.domain == "FIRFirestoreErrorDomain" && nsError.code == 7)
             || localized.contains("missing or insufficient permissions")
             || localized.contains("insufficient permissions") {
-            return "커뮤니티 권한을 확인해주세요."
+            return AppLanguage.current.text("커뮤니티 권한을 확인해주세요.", "Check Community permissions.")
         }
 
         return fallback
+    }
+
+    private func friendActionErrorMessage(for error: Error) -> String {
+        let nsError = error as NSError
+        let localized = nsError.localizedDescription.lowercased()
+
+        if (nsError.domain == "FIRFirestoreErrorDomain" && nsError.code == 7)
+            || localized.contains("missing or insufficient permissions")
+            || localized.contains("insufficient permissions") {
+            return AppLanguage.current.text(
+                "친구 정보를 저장할 권한이 없어요. Firestore rules 배포 상태를 확인해주세요.",
+                "The app doesn't have permission to save friend data. Check whether Firestore rules were deployed."
+            )
+        }
+
+        return AppLanguage.current.text(
+            "친구 요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.",
+            "Couldn't process the friend request. Please try again shortly."
+        )
+    }
+
+    func updateContactDirectory(_ directory: [String: String]) {
+        contactEmailDirectory = directory
+        refreshSocialDiscovery()
     }
 
     func reload() async {
@@ -157,8 +220,13 @@ final class CommunityViewModel: ObservableObject {
             allFeedPosts = []
             suggestedFriends = []
             friends = []
+            incomingFriendRequests = []
+            outgoingFriendRequests = []
+            contactMatches = []
             friendIds = []
+            pendingRequestUserIds = []
             userDirectory = [:]
+            rankedUsers = []
             errorMessage = nil
             return
         }
@@ -171,12 +239,14 @@ final class CommunityViewModel: ObservableObject {
         async let usersTask   = backendService.fetchUsers(limit: 100)
         async let friendsTask = backendService.fetchFriends()
         async let blockedTask = backendService.fetchBlockedUsers()
+        async let requestsTask = backendService.fetchFriendRequests()
         async let mateTask    = backendService.fetchMatePosts()
         async let feedTask    = backendService.fetchFeedPosts()
 
         let users       = (try? await usersTask)   ?? []
         let friendLinks = (try? await friendsTask) ?? []
         let blocked     = (try? await blockedTask) ?? []
+        let requests    = (try? await requestsTask) ?? []
         blockedUserIds  = Set(blocked)
 
         do {
@@ -185,25 +255,18 @@ final class CommunityViewModel: ObservableObject {
 
             currentUserId = backendService.userId
             userDirectory = Dictionary(uniqueKeysWithValues: users.map { ($0.uid, $0) })
-            friendIds = Set(friendLinks.map(\.friendId))
-
-            let sortedUsers = users.sorted { lhs, rhs in
+            rankedUsers = users.sorted { lhs, rhs in
                 if lhs.totalDistanceKm == rhs.totalDistanceKm {
                     return lhs.updatedAt > rhs.updatedAt
                 }
                 return lhs.totalDistanceKm > rhs.totalDistanceKm
             }
 
-            friends = sortedUsers
-                .filter { friendIds.contains($0.uid) }
-                .map { makeCommunityFriend(from: $0) }
+            rebuildRelationships(friendLinks: friendLinks, requests: requests)
+            refreshSocialDiscovery()
 
-            suggestedFriends = sortedUsers
-                .filter { user in
-                    guard let currentUserId else { return false }
-                    return user.uid != currentUserId && !friendIds.contains(user.uid)
-                }
-                .prefix(12)
+            friends = rankedUsers
+                .filter { friendIds.contains($0.uid) }
                 .map { makeCommunityFriend(from: $0) }
 
             matePosts = fetchedMatePosts
@@ -219,14 +282,33 @@ final class CommunityViewModel: ObservableObject {
             applyFeedFilter()
             errorMessage = nil
         } catch {
-            errorMessage = presentableMessage(for: error, fallback: "커뮤니티를 불러오지 못했어요.")
+            errorMessage = presentableMessage(
+                for: error,
+                fallback: AppLanguage.current.text("커뮤니티를 불러오지 못했어요.", "Couldn't load Community.")
+            )
         }
     }
 
-    func addFriend(friendId: String) async {
+    func addFriend(friendId: String, source: String = "manual") async {
         guard let backendService else { return }
         guard backendService.isSignedIn else {
-            errorMessage = "친구 추가는 로그인 후 사용할 수 있어요."
+            errorMessage = AppLanguage.current.text(
+                "친구 요청은 로그인 후 사용할 수 있어요.",
+                "Friend requests are available after sign-in."
+            )
+            return
+        }
+
+        guard !friendIds.contains(friendId) else {
+            errorMessage = nil
+            return
+        }
+
+        guard !pendingRequestUserIds.contains(friendId) else {
+            errorMessage = AppLanguage.current.text(
+                "이미 진행 중인 친구 요청이 있어요.",
+                "There is already a friend request in progress."
+            )
             return
         }
 
@@ -234,10 +316,26 @@ final class CommunityViewModel: ObservableObject {
         defer { isSubmitting = false }
 
         do {
-            try await backendService.addFriend(friendId: friendId)
+            try await backendService.sendFriendRequest(toUserId: friendId, source: source)
+            errorMessage = nil
             await reload()
         } catch {
-            errorMessage = "친구 추가 실패: \(error.localizedDescription)"
+            errorMessage = friendActionErrorMessage(for: error)
+        }
+    }
+
+    func respondToFriendRequest(requestId: String, accept: Bool) async {
+        guard let backendService else { return }
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await backendService.respondToFriendRequest(requestId: requestId, accept: accept)
+            errorMessage = nil
+            await reload()
+        } catch {
+            errorMessage = friendActionErrorMessage(for: error)
         }
     }
 
@@ -250,7 +348,7 @@ final class CommunityViewModel: ObservableObject {
             try await backendService.toggleLikeFeedPost(postId: postId)
             await reload()
         } catch {
-            errorMessage = "좋아요 반영 실패: \(error.localizedDescription)"
+            errorMessage = AppLanguage.current.text("좋아요 반영 실패: \(error.localizedDescription)", "Couldn't update the like: \(error.localizedDescription)")
         }
     }
 
@@ -259,7 +357,7 @@ final class CommunityViewModel: ObservableObject {
             let backendService,
             let userId = backendService.userId
         else {
-            errorMessage = "댓글 작성은 로그인 후 사용할 수 있어요."
+            errorMessage = AppLanguage.current.text("댓글 작성은 로그인 후 사용할 수 있어요.", "You can write comments after sign-in.")
             return
         }
 
@@ -267,7 +365,7 @@ final class CommunityViewModel: ObservableObject {
         let comment = FirestoreComment(
             id: UUID().uuidString,
             authorId: userId,
-            authorName: author?.displayName ?? "러너",
+            authorName: author?.displayName ?? AppLanguage.current.text("러너", "Runner"),
             authorLevel: author?.level ?? RunnerLevel.starter.rawValue,
             content: content,
             createdAt: Date()
@@ -280,7 +378,7 @@ final class CommunityViewModel: ObservableObject {
             try await backendService.addCommentToFeedPost(postId: postId, comment: comment)
             await reload()
         } catch {
-            errorMessage = "댓글 저장 실패: \(error.localizedDescription)"
+            errorMessage = AppLanguage.current.text("댓글 저장 실패: \(error.localizedDescription)", "Couldn't save the comment: \(error.localizedDescription)")
         }
     }
 
@@ -293,7 +391,7 @@ final class CommunityViewModel: ObservableObject {
             try await backendService.toggleJoinMatePost(postId: postId)
             await reload()
         } catch {
-            errorMessage = "참여 상태 반영 실패: \(error.localizedDescription)"
+            errorMessage = AppLanguage.current.text("참여 상태 반영 실패: \(error.localizedDescription)", "Couldn't update participation: \(error.localizedDescription)")
         }
     }
 
@@ -308,7 +406,7 @@ final class CommunityViewModel: ObservableObject {
                 reason: reason
             )
         } catch {
-            errorMessage = "신고를 전송하지 못했어요."
+            errorMessage = AppLanguage.current.text("신고를 전송하지 못했어요.", "Couldn't send the report.")
         }
     }
 
@@ -321,7 +419,7 @@ final class CommunityViewModel: ObservableObject {
             applyFeedFilter()
             matePosts = matePosts.filter { $0.authorId != userId }
         } catch {
-            errorMessage = "차단할 수 없었어요."
+            errorMessage = AppLanguage.current.text("차단할 수 없었어요.", "Couldn't block this user.")
         }
     }
 
@@ -339,22 +437,22 @@ final class CommunityViewModel: ObservableObject {
             let backendService,
             let userId = backendService.userId
         else {
-            errorMessage = "메이트 모집은 로그인 후 사용할 수 있어요."
+            errorMessage = AppLanguage.current.text("메이트 모집은 로그인 후 사용할 수 있어요.", "You can create mate posts after sign-in.")
             return false
         }
 
         let author = userDirectory[userId] ?? backendService.currentUser
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "M/d (E)"
-        dateFormatter.locale = Locale(identifier: "ko_KR")
+        dateFormatter.dateFormat = AppLanguage.current.isEnglish ? "MMM d (E)" : "M/d (E)"
+        dateFormatter.locale = AppLanguage.current.isEnglish ? Locale(identifier: "en") : Locale(identifier: "ko_KR")
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "HH:mm"
-        timeFormatter.locale = Locale(identifier: "ko_KR")
+        timeFormatter.locale = AppLanguage.current.isEnglish ? Locale(identifier: "en") : Locale(identifier: "ko_KR")
 
         let post = FirestoreMatePost(
             id: UUID().uuidString,
             authorId: userId,
-            authorName: author?.displayName ?? "러너",
+            authorName: author?.displayName ?? AppLanguage.current.text("러너", "Runner"),
             authorLevel: author?.level ?? RunnerLevel.starter.rawValue,
             title: title,
             location: location,
@@ -379,7 +477,7 @@ final class CommunityViewModel: ObservableObject {
             await reload()
             return true
         } catch {
-            errorMessage = "메이트 모집 글 저장 실패: \(error.localizedDescription)"
+            errorMessage = AppLanguage.current.text("메이트 모집 글 저장 실패: \(error.localizedDescription)", "Couldn't save the mate post: \(error.localizedDescription)")
             return false
         }
     }
@@ -389,7 +487,7 @@ final class CommunityViewModel: ObservableObject {
             let backendService,
             let userId = backendService.userId
         else {
-            errorMessage = "피드 작성은 로그인 후 사용할 수 있어요."
+            errorMessage = AppLanguage.current.text("피드 작성은 로그인 후 사용할 수 있어요.", "You can write feed posts after sign-in.")
             return false
         }
 
@@ -418,11 +516,23 @@ final class CommunityViewModel: ObservableObject {
             let post = FirestoreFeedPost(
                 id: UUID().uuidString,
                 authorId: userId,
-                authorName: author?.displayName ?? "러너",
+                authorName: author?.displayName ?? AppLanguage.current.text("러너", "Runner"),
                 authorLevel: author?.level ?? RunnerLevel.starter.rawValue,
+                headline: nil,
                 content: content,
+                runId: nil,
+                runStartedAt: nil,
                 distanceKm: nil,
+                durationFormatted: nil,
                 paceFormatted: nil,
+                averageHeartRateBpm: nil,
+                averageSpeedKmh: nil,
+                cadenceSpm: nil,
+                elevationGainMeters: nil,
+                caloriesKcal: nil,
+                targetPaceFormatted: nil,
+                goalDeltaSeconds: nil,
+                selectedMetricKeys: nil,
                 photoURL: photoURL,
                 likedUserIds: [],
                 comments: [],
@@ -434,7 +544,7 @@ final class CommunityViewModel: ObservableObject {
             await reload()
             return true
         } catch {
-            errorMessage = "피드 업로드 실패: \(error.localizedDescription)"
+            errorMessage = AppLanguage.current.text("피드 업로드 실패: \(error.localizedDescription)", "Couldn't upload the feed post: \(error.localizedDescription)")
             return false
         }
     }
@@ -451,6 +561,106 @@ final class CommunityViewModel: ObservableObject {
         case .friends:
             feedPosts = allFeedPosts.filter { friendIds.contains($0.authorId) }
         }
+    }
+
+    private func rebuildRelationships(friendLinks: [FirestoreFriendLink], requests: [FirestoreFriendRequest]) {
+        let legacyFriendIds = Set(friendLinks.map(\.friendId))
+        var acceptedFriendIds = legacyFriendIds
+        var pendingIds = Set<String>()
+        var nextIncoming: [CommunityFriendRequest] = []
+        var nextOutgoing: [CommunityFriendRequest] = []
+
+        for request in requests {
+            guard let currentUserId else { continue }
+
+            let counterpartId: String
+            let isIncoming: Bool
+
+            if request.toUserId == currentUserId {
+                counterpartId = request.fromUserId
+                isIncoming = true
+            } else if request.fromUserId == currentUserId {
+                counterpartId = request.toUserId
+                isIncoming = false
+            } else {
+                continue
+            }
+
+            switch request.status {
+            case "accepted":
+                acceptedFriendIds.insert(counterpartId)
+            case "pending":
+                pendingIds.insert(counterpartId)
+                guard let counterpart = userDirectory[counterpartId] else { continue }
+                let item = CommunityFriendRequest(
+                    id: request.id,
+                    friend: makeCommunityFriend(from: counterpart),
+                    source: request.source,
+                    createdAt: request.createdAt,
+                    isIncoming: isIncoming
+                )
+                if isIncoming {
+                    nextIncoming.append(item)
+                } else {
+                    nextOutgoing.append(item)
+                }
+            default:
+                continue
+            }
+        }
+
+        friendIds = acceptedFriendIds
+        pendingRequestUserIds = pendingIds
+        incomingFriendRequests = nextIncoming.sorted { $0.createdAt > $1.createdAt }
+        outgoingFriendRequests = nextOutgoing.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func refreshSocialDiscovery() {
+        guard let currentUserId else {
+            suggestedFriends = []
+            contactMatches = []
+            return
+        }
+
+        let normalizedContacts = contactEmailDirectory.reduce(into: [String: String]()) { result, item in
+            let normalized = normalizeEmail(item.key)
+            if !normalized.isEmpty {
+                result[normalized] = item.value
+            }
+        }
+
+        let matchedUsers = rankedUsers.filter { user in
+            let normalizedEmail = normalizeEmail(user.email)
+            return user.uid != currentUserId
+                && !friendIds.contains(user.uid)
+                && !pendingRequestUserIds.contains(user.uid)
+                && !normalizedEmail.isEmpty
+                && normalizedContacts[normalizedEmail] != nil
+        }
+
+        let contactMatchedIds = Set(matchedUsers.map(\.uid))
+        contactMatches = matchedUsers.prefix(20).map { user in
+            let normalizedEmail = normalizeEmail(user.email)
+            return ContactMatchedFriend(
+                id: user.uid,
+                friend: makeCommunityFriend(from: user),
+                contactName: normalizedContacts[normalizedEmail] ?? user.displayName
+            )
+        }
+
+        suggestedFriends = rankedUsers
+            .filter { user in
+                user.uid != currentUserId
+                    && !friendIds.contains(user.uid)
+                    && !pendingRequestUserIds.contains(user.uid)
+                    && !contactMatchedIds.contains(user.uid)
+            }
+            .prefix(12)
+            .map { makeCommunityFriend(from: $0) }
+    }
+
+    private func normalizeEmail(_ email: String) -> String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func makeCommunityFriend(from user: FirestoreUser) -> CommunityFriend {
@@ -490,9 +700,20 @@ final class CommunityViewModel: ObservableObject {
             authorId: post.authorId,
             authorName: post.authorName,
             authorLevel: RunnerLevel(rawValue: post.authorLevel) ?? .starter,
+            headline: post.headline,
             content: post.content,
+            runStartedAt: post.runStartedAt,
             distanceKm: post.distanceKm,
+            durationFormatted: post.durationFormatted,
             paceFormatted: post.paceFormatted,
+            averageHeartRateBpm: post.averageHeartRateBpm,
+            averageSpeedKmh: post.averageSpeedKmh,
+            cadenceSpm: post.cadenceSpm,
+            elevationGainMeters: post.elevationGainMeters,
+            caloriesKcal: post.caloriesKcal,
+            targetPaceFormatted: post.targetPaceFormatted,
+            goalDeltaSeconds: post.goalDeltaSeconds,
+            selectedMetricKeys: (post.selectedMetricKeys ?? []).compactMap(RunShareMetricKey.init(rawValue:)),
             createdAt: post.createdAt,
             likes: post.likedUserIds.count,
             comments: post.comments
@@ -517,8 +738,11 @@ final class CommunityViewModel: ObservableObject {
 
 struct CommunityView: View {
     @EnvironmentObject private var backendService: BackendService
+    @EnvironmentObject private var authService: AuthService
+    @Environment(\.openURL) private var openURL
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @StateObject private var viewModel = CommunityViewModel()
+    @StateObject private var contactsService = ContactsService()
     @State private var selectedTab: CommunityTab = .mate
     @State private var selectedMateMode: MateMode = .friends
     @State private var showCreateMate = false
@@ -595,7 +819,7 @@ struct CommunityView: View {
                         .refreshable {
                             await viewModel.reload()
                         }
-                        .contentMargins(.bottom, 100, for: .scrollContent)
+                        .contentMargins(.bottom, RBLayout.scrollBottomInset, for: .scrollContent)
                     }
                 }
             }
@@ -652,7 +876,12 @@ struct CommunityView: View {
             }
             .task(id: backendService.userId) {
                 viewModel.configure(backendService: backendService)
+                contactsService.refreshAuthorizationStatus()
+                if contactsService.isAuthorized {
+                    await contactsService.loadContacts()
+                }
                 await viewModel.reload()
+                viewModel.updateContactDirectory(contactsService.contactEmailDirectory)
             }
         }
     }
@@ -664,6 +893,12 @@ struct CommunityView: View {
                     Text(appLanguage.text("커뮤니티", "Community"))
                         .font(RBFont.hero(28))
                         .foregroundStyle(RBColor.textPrimary)
+
+                    if backendService.isSignedIn, selectedTab == .mate {
+                        Text(appLanguage.text("친구와 메이트를 관리합니다", "Manage friends and running mates"))
+                            .font(RBFont.caption(11))
+                            .foregroundStyle(RBColor.textSecondary)
+                    }
                 }
 
                 Spacer()
@@ -719,15 +954,64 @@ struct CommunityView: View {
     }
 
     private var signInRequiredState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "person.crop.circle.badge.exclamationmark")
-                .font(.system(size: 40))
-                .foregroundStyle(RBColor.textTertiary)
-            Text(appLanguage.text("로그인 후 이용할 수 있어요", "Available after sign-in"))
-                .font(RBFont.label(18))
-                .foregroundStyle(RBColor.textPrimary)
+        VStack(spacing: 18) {
+            ZStack {
+                Circle()
+                    .fill(RBColor.accent.opacity(0.14))
+                    .frame(width: 74, height: 74)
+                Image(systemName: "person.2.crop.square.stack.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(RBColor.accent)
+            }
+
+            VStack(spacing: 6) {
+                Text(appLanguage.text("커뮤니티 로그인이 필요해요", "Sign in to use Community"))
+                    .font(RBFont.label(20))
+                    .foregroundStyle(RBColor.textPrimary)
+                Text(appLanguage.text("친구 추가, 메이트 모집, 피드 작성을 사용할 수 있습니다.", "Add friends, create mate posts, and write feed posts."))
+                    .font(RBFont.caption(12))
+                    .foregroundStyle(RBColor.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 12) {
+                LocalizedAppleSignInButton(
+                    title: appLanguage.text("Apple로 로그인", "Sign in with Apple"),
+                    isAuthenticating: authService.isAuthenticating
+                ) { request in
+                    authService.prepareAppleSignInRequest(request)
+                } onCompletion: { result in
+                    Task {
+                        await authService.handleSignInResult(result, backendService: backendService)
+                        await viewModel.reload()
+                    }
+                }
+
+                if authService.isGoogleSignInAvailable {
+                    GoogleBrandedSignInButton(
+                        title: appLanguage.text("Google로 로그인", "Sign in with Google"),
+                        isAuthenticating: authService.isAuthenticating
+                    ) {
+                        Task {
+                            await authService.signInWithGoogle(backendService: backendService)
+                            await viewModel.reload()
+                        }
+                    }
+                }
+
+                if authService.isAuthenticating {
+                    ProgressView()
+                        .tint(RBColor.accent)
+                }
+
+                if let error = authService.signInError {
+                    errorBanner(error)
+                }
+            }
+            .frame(maxWidth: 340)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
     }
 
     private func errorBanner(_ text: String) -> some View {
@@ -833,8 +1117,19 @@ struct CommunityView: View {
 
     private var mateFriendsContent: some View {
         Group {
-            if !viewModel.friends.isEmpty {
+            if !viewModel.friends.isEmpty || !viewModel.incomingFriendRequests.isEmpty || !viewModel.outgoingFriendRequests.isEmpty {
                 mateFriendsHero
+            }
+
+            if !viewModel.incomingFriendRequests.isEmpty {
+                incomingFriendRequestsSection
+            }
+
+            if !viewModel.outgoingFriendRequests.isEmpty {
+                outgoingFriendRequestsSection
+            }
+
+            if !viewModel.friends.isEmpty {
                 friendsRecordSection
             }
 
@@ -842,7 +1137,11 @@ struct CommunityView: View {
                 suggestedFriendsSection
             }
 
-            if viewModel.friends.isEmpty && viewModel.suggestedFriends.isEmpty && !viewModel.isLoading {
+            if viewModel.friends.isEmpty
+                && viewModel.suggestedFriends.isEmpty
+                && viewModel.incomingFriendRequests.isEmpty
+                && viewModel.outgoingFriendRequests.isEmpty
+                && !viewModel.isLoading {
                 emptyState(
                     icon: "person.2.slash",
                     title: appLanguage.text("아직 연결된 러닝 친구가 없어요", "No running friends yet")
@@ -853,6 +1152,8 @@ struct CommunityView: View {
 
     private var mateDiscoverContent: some View {
         Group {
+            contactDiscoverySection
+
             mateMapPreview
 
             VStack(alignment: .leading, spacing: 10) {
@@ -1007,12 +1308,12 @@ struct CommunityView: View {
                 socialStatCard(
                     title: appLanguage.text("내 친구", "Friends"),
                     value: "\(viewModel.friends.count)",
-                    subtitle: appLanguage.text("함께 뛰는 러너", "Connected runners")
+                    subtitle: appLanguage.text("연결됨", "Connected")
                 )
                 socialStatCard(
-                    title: appLanguage.text("추천", "Suggested"),
-                    value: "\(viewModel.suggestedFriends.count)",
-                    subtitle: appLanguage.text("추가 후보", "People to add")
+                    title: appLanguage.text("받은 요청", "Requests"),
+                    value: "\(viewModel.incomingFriendRequests.count)",
+                    subtitle: appLanguage.text("응답 필요", "Needs reply")
                 )
             }
         }
@@ -1042,6 +1343,272 @@ struct CommunityView: View {
         }
     }
 
+    private var incomingFriendRequestsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(appLanguage.text("받은 친구 요청", "Incoming Requests"))
+                    .font(RBFont.label(16))
+                    .foregroundStyle(RBColor.textPrimary)
+                Spacer()
+                Text(appLanguage.text("\(viewModel.incomingFriendRequests.count)건", "\(viewModel.incomingFriendRequests.count)"))
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
+            }
+
+            VStack(spacing: 12) {
+                ForEach(viewModel.incomingFriendRequests) { request in
+                    friendRequestCard(request)
+                }
+            }
+        }
+    }
+
+    private var outgoingFriendRequestsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(appLanguage.text("보낸 친구 요청", "Sent Requests"))
+                    .font(RBFont.label(16))
+                    .foregroundStyle(RBColor.textPrimary)
+                Spacer()
+            }
+
+            VStack(spacing: 12) {
+                ForEach(viewModel.outgoingFriendRequests) { request in
+                    friendRequestCard(request)
+                }
+            }
+        }
+    }
+
+    private func friendRequestCard(_ request: CommunityFriendRequest) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(communityLevelColor(request.friend.level).opacity(0.18))
+                        .frame(width: 48, height: 48)
+                    Text(String(request.friend.name.prefix(1)))
+                        .font(RBFont.label(16))
+                        .foregroundStyle(communityLevelColor(request.friend.level))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(request.friend.name)
+                            .font(RBFont.label(15))
+                            .foregroundStyle(RBColor.textPrimary)
+                        Text(request.friend.level.localizedName(appLanguage))
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(communityLevelColor(request.friend.level))
+                    }
+                    Text(CommunityFormatter.relativeString(from: request.createdAt, appLanguage: appLanguage))
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(RBColor.textTertiary)
+                }
+
+                Spacer()
+
+                requestSourceBadge(request.source)
+            }
+
+            HStack(spacing: 10) {
+                compactFriendStat(title: appLanguage.text("거리", "Distance"), value: String(format: "%.1fkm", request.friend.totalDistanceKm))
+                compactFriendStat(title: appLanguage.text("러닝", "Runs"), value: appLanguage.text("\(request.friend.totalRuns)회", "\(request.friend.totalRuns)x"))
+            }
+
+            if request.isIncoming {
+                HStack(spacing: 10) {
+                    Button {
+                        Task {
+                            await viewModel.respondToFriendRequest(requestId: request.id, accept: false)
+                        }
+                    } label: {
+                        Text(appLanguage.text("거절", "Decline"))
+                            .font(RBFont.label(13))
+                            .foregroundStyle(RBColor.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(RBColor.cardBgLight)
+                            .clipShape(Capsule())
+                    }
+
+                    Button {
+                        Task {
+                            await viewModel.respondToFriendRequest(requestId: request.id, accept: true)
+                        }
+                    } label: {
+                        Text(appLanguage.text("수락", "Accept"))
+                            .font(RBFont.label(13))
+                            .foregroundStyle(RBColor.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(RBColor.accentGradient)
+                            .clipShape(Capsule())
+                    }
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 11))
+                    Text(appLanguage.text("응답 대기 중", "Waiting for reply"))
+                        .font(RBFont.label(12))
+                }
+                .foregroundStyle(RBColor.textSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(RBColor.cardBgLight)
+                .clipShape(Capsule())
+            }
+        }
+        .padding(16)
+        .background(RBColor.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var contactDiscoverySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(appLanguage.text("연락처에서 러너 찾기", "Find Runners in Contacts"))
+                    .font(RBFont.label(16))
+                    .foregroundStyle(RBColor.textPrimary)
+                Spacer()
+                if contactsService.isAuthorized {
+                    Text(appLanguage.text("\(viewModel.contactMatches.count)명", "\(viewModel.contactMatches.count)"))
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(RBColor.textTertiary)
+                }
+            }
+
+            if contactsService.isAuthorized {
+                if contactsService.isLoading {
+                    ProgressView()
+                        .tint(RBColor.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                        .background(RBColor.cardBg)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                } else if viewModel.contactMatches.isEmpty {
+                    emptyState(
+                        icon: "person.crop.circle.badge.questionmark",
+                        title: appLanguage.text("일치하는 연락처가 아직 없어요", "No matching contacts yet"),
+                        subtitle: appLanguage.text("현재는 연락처 이메일 기준으로만 친구를 추천합니다.", "For now, contact-based matching uses contact email addresses only.")
+                    )
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(viewModel.contactMatches) { match in
+                            contactMatchCard(match)
+                        }
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(appLanguage.text("연락처를 허용하면 저장된 이메일과 일치하는 러너에게 바로 요청을 보낼 수 있어요.", "Allow contacts to send requests to runners whose emails match your saved contacts."))
+                        .font(RBFont.caption(12))
+                        .foregroundStyle(RBColor.textSecondary)
+
+                    Button {
+                        Task {
+                            if contactsService.authorizationStatus == .denied || contactsService.authorizationStatus == .restricted {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    openURL(url)
+                                }
+                            } else {
+                                await contactsService.requestAccessIfNeeded()
+                                viewModel.updateContactDirectory(contactsService.contactEmailDirectory)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: contactsService.authorizationStatus == .denied ? "gearshape.fill" : "person.crop.circle.badge.plus")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(contactsService.authorizationStatus == .denied
+                                 ? appLanguage.text("설정 열기", "Open Settings")
+                                 : appLanguage.text("연락처 접근 허용", "Allow Contacts"))
+                                .font(RBFont.label(13))
+                        }
+                        .foregroundStyle(RBColor.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(RBColor.accentGradient)
+                        .clipShape(Capsule())
+                    }
+                }
+                .padding(16)
+                .background(RBColor.cardBg)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+        }
+    }
+
+    private func contactMatchCard(_ match: ContactMatchedFriend) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(communityLevelColor(match.friend.level).opacity(0.18))
+                        .frame(width: 52, height: 52)
+                    Text(String(match.friend.name.prefix(1)))
+                        .font(RBFont.label(18))
+                        .foregroundStyle(communityLevelColor(match.friend.level))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(match.friend.name)
+                        .font(RBFont.label(15))
+                        .foregroundStyle(RBColor.textPrimary)
+                    Text(match.friend.level.localizedName(appLanguage))
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(communityLevelColor(match.friend.level))
+                    Text(appLanguage.text("연락처: \(match.contactName)", "Contact: \(match.contactName)"))
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(RBColor.textTertiary)
+                }
+
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                compactFriendStat(title: appLanguage.text("거리", "Distance"), value: String(format: "%.1fkm", match.friend.totalDistanceKm))
+                compactFriendStat(title: appLanguage.text("러닝", "Runs"), value: appLanguage.text("\(match.friend.totalRuns)회", "\(match.friend.totalRuns)x"))
+            }
+
+            Button {
+                Task {
+                    await viewModel.addFriend(friendId: match.friend.id, source: "contacts")
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(appLanguage.text("친구 요청", "Send Request"))
+                        .font(RBFont.label(13))
+                }
+                .foregroundStyle(RBColor.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(RBColor.accentGradient)
+                .clipShape(Capsule())
+            }
+            .disabled(viewModel.isSubmitting)
+            .opacity(viewModel.isSubmitting ? 0.6 : 1)
+        }
+        .padding(16)
+        .background(RBColor.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func requestSourceBadge(_ source: String) -> some View {
+        Text(source == "contacts"
+             ? appLanguage.text("연락처", "Contacts")
+             : appLanguage.text("앱 추천", "Suggested"))
+            .font(RBFont.caption(9))
+            .foregroundStyle(RBColor.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(RBColor.cardBgLight)
+            .clipShape(Capsule())
+    }
+
     private func mateCard(
         _ post: RunMatePost,
         onReport: @escaping () -> Void,
@@ -1063,7 +1630,7 @@ struct CommunityView: View {
                         Text(post.authorName)
                             .font(RBFont.label(13))
                             .foregroundStyle(RBColor.textPrimary)
-                        Text(post.authorLevel.rawValue)
+                        Text(post.authorLevel.localizedName(appLanguage))
                             .font(RBFont.caption(9))
                             .foregroundStyle(communityLevelColor(post.authorLevel))
                             .padding(.horizontal, 6)
@@ -1302,63 +1869,75 @@ struct CommunityView: View {
                     .font(RBFont.label(16))
                     .foregroundStyle(RBColor.textPrimary)
                 Spacer()
+                Text(appLanguage.text("\(viewModel.suggestedFriends.count)명", "\(viewModel.suggestedFriends.count)"))
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(viewModel.suggestedFriends) { friend in
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 10) {
-                                ZStack {
-                                    Circle()
-                                        .fill(communityLevelColor(friend.level).opacity(0.2))
-                                        .frame(width: 42, height: 42)
-                                    Text(String(friend.name.prefix(1)))
-                                        .font(RBFont.label(16))
-                                        .foregroundStyle(communityLevelColor(friend.level))
-                                }
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(friend.name)
-                                        .font(RBFont.label(13))
-                                        .foregroundStyle(RBColor.textPrimary)
-                                        .lineLimit(1)
-                                    Text(friend.level.rawValue)
-                                        .font(RBFont.caption(10))
-                                        .foregroundStyle(communityLevelColor(friend.level))
-                                }
-                            }
-
-                            Text(friend.recordSummary)
-                                .font(RBFont.caption(11))
-                                .foregroundStyle(RBColor.textSecondary)
-
-                            Button {
-                                Task {
-                                    await viewModel.addFriend(friendId: friend.id)
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "person.badge.plus")
-                                        .font(.system(size: 11))
-                                    Text(appLanguage.text("친구 추가", "Add Friend"))
-                                        .font(RBFont.label(12))
-                                }
-                                .foregroundStyle(RBColor.textPrimary)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 34)
-                                .background(RBColor.accentGradient)
-                                .clipShape(Capsule())
-                            }
-                        }
-                        .frame(width: 200, alignment: .leading)
-                        .padding(14)
-                        .background(RBColor.cardBg)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    }
+            VStack(spacing: 12) {
+                ForEach(viewModel.suggestedFriends) { friend in
+                    suggestedFriendCard(friend)
                 }
             }
         }
+    }
+
+    private func suggestedFriendCard(_ friend: CommunityFriend) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(communityLevelColor(friend.level).opacity(0.18))
+                        .frame(width: 52, height: 52)
+                    Text(String(friend.name.prefix(1)))
+                        .font(RBFont.label(18))
+                        .foregroundStyle(communityLevelColor(friend.level))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(friend.name)
+                        .font(RBFont.label(15))
+                        .foregroundStyle(RBColor.textPrimary)
+                    Text(friend.level.localizedName(appLanguage))
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(communityLevelColor(friend.level))
+                }
+
+                Spacer()
+
+                Text(friend.recordSummary)
+                    .font(RBFont.caption(11))
+                    .foregroundStyle(RBColor.textSecondary)
+            }
+
+            HStack(spacing: 10) {
+                compactFriendStat(title: appLanguage.text("거리", "Distance"), value: String(format: "%.1fkm", friend.totalDistanceKm))
+                compactFriendStat(title: appLanguage.text("러닝", "Runs"), value: appLanguage.text("\(friend.totalRuns)회", "\(friend.totalRuns)x"))
+            }
+
+            Button {
+                Task {
+                    await viewModel.addFriend(friendId: friend.id)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(appLanguage.text("친구 요청", "Send Request"))
+                        .font(RBFont.label(13))
+                }
+                .foregroundStyle(RBColor.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(RBColor.accentGradient)
+                .clipShape(Capsule())
+            }
+            .disabled(viewModel.isSubmitting)
+            .opacity(viewModel.isSubmitting ? 0.6 : 1)
+        }
+        .padding(16)
+        .background(RBColor.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var friendsRecordSection: some View {
@@ -1391,7 +1970,7 @@ struct CommunityView: View {
                                     Text(friend.name)
                                         .font(RBFont.label(12))
                                         .foregroundStyle(RBColor.textPrimary)
-                                    Text(friend.level.rawValue)
+                                    Text(friend.level.localizedName(appLanguage))
                                         .font(RBFont.caption(9))
                                         .foregroundStyle(communityLevelColor(friend.level))
                                 }
@@ -1454,6 +2033,21 @@ struct CommunityView: View {
         }
     }
 
+    private func compactFriendStat(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(RBFont.caption(9))
+                .foregroundStyle(RBColor.textTertiary)
+            Text(value)
+                .font(RBFont.metric(13))
+                .foregroundStyle(RBColor.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RBColor.cardBgLight)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
     // MARK: - Empty State
 
     private func emptyState(icon: String, title: String, subtitle: String? = nil) -> some View {
@@ -1479,12 +2073,27 @@ struct CommunityView: View {
 // MARK: - Feed Card View
 
 struct FeedCardView: View {
+    private struct RunSummaryMetric: Identifiable {
+        let key: RunShareMetricKey
+        let title: String
+        let value: String
+        let subtitle: String?
+        let accent: Color
+
+        var id: String { key.rawValue }
+    }
+
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     let post: RunnerPost
     @ObservedObject var viewModel: CommunityViewModel
     @State private var showComments = false
     @State private var newComment = ""
     @State private var showReportDialog = false
+
+    private let summaryColumns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+    ]
 
     private var appLanguage: AppLanguage {
         AppLanguage(rawValue: appLanguageRaw) ?? .system
@@ -1497,27 +2106,23 @@ struct FeedCardView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 14)
 
-            mediaBlock
+            if post.isRunResult {
+                runSummaryBlock
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+            }
+
+            if shouldShowMediaBlock {
+                mediaBlock
+            }
 
             VStack(alignment: .leading, spacing: 12) {
                 actionRow
 
-                if let dist = post.distanceKm, let pace = post.paceFormatted {
-                    HStack(spacing: 10) {
-                        statPill(icon: "figure.run", value: String(format: "%.2f km", dist))
-                        statPill(icon: "speedometer", value: pace)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(post.authorName)
-                        .font(RBFont.label(13))
-                        .foregroundStyle(RBColor.textPrimary)
-
-                    Text(post.content)
-                        .font(RBFont.label(14))
-                        .foregroundStyle(RBColor.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
+                if post.isRunResult {
+                    runNarrativeBlock
+                } else {
+                    freeBoardContentBlock
                 }
 
                 if !post.comments.isEmpty && !showComments {
@@ -1564,6 +2169,13 @@ struct FeedCardView: View {
         }
     }
 
+    private var shouldShowMediaBlock: Bool {
+        if post.isRunResult {
+            return post.photoURL != nil
+        }
+        return true
+    }
+
     private var header: some View {
         HStack {
             ZStack {
@@ -1580,7 +2192,7 @@ struct FeedCardView: View {
                     Text(post.authorName)
                         .font(RBFont.label(13))
                         .foregroundStyle(RBColor.textPrimary)
-                    Text(post.authorLevel.rawValue)
+                    Text(post.authorLevel.localizedName(appLanguage))
                         .font(RBFont.caption(9))
                         .foregroundStyle(communityLevelColor(post.authorLevel))
                         .padding(.horizontal, 6)
@@ -1623,6 +2235,107 @@ struct FeedCardView: View {
         }
     }
 
+    private var runSummaryBlock: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(appLanguage.text("러닝 기록", "Run Result"))
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
+                    .tracking(1.2)
+
+                Spacer()
+
+                if let runStartedAt = post.runStartedAt {
+                    Text(RunPresentationFormatter.scheduleString(from: runStartedAt, appLanguage: appLanguage))
+                        .font(RBFont.caption(11))
+                        .foregroundStyle(RBColor.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Text(resolvedHeadline)
+                .font(RBFont.hero(22))
+                .foregroundStyle(RBColor.textPrimary)
+                .lineLimit(3)
+
+            HStack(alignment: .lastTextBaseline, spacing: 6) {
+                Text(distanceValueText)
+                    .font(RBFont.hero(42))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+
+                Text("km")
+                    .font(RBFont.label(18))
+                    .foregroundStyle(RBColor.textSecondary)
+
+                Spacer(minLength: 8)
+
+                Text(post.timeAgo)
+                    .font(RBFont.caption(11))
+                    .foregroundStyle(RBColor.textTertiary)
+            }
+
+            if !runSummaryMetrics.isEmpty {
+                LazyVGrid(columns: summaryColumns, spacing: 10) {
+                    ForEach(runSummaryMetrics) { metric in
+                        runSummaryMetricCard(metric)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            RBColor.cardBgLight,
+                            RBColor.cardBg,
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(RBColor.divider.opacity(0.75), lineWidth: 1)
+        )
+    }
+
+    private func runSummaryMetricCard(_ metric: RunSummaryMetric) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: metric.key.symbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(metric.accent)
+                Text(metric.title)
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textTertiary)
+            }
+
+            Text(metric.value)
+                .font(RBFont.metric(16))
+                .foregroundStyle(RBColor.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            if let subtitle = metric.subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(RBFont.caption(10))
+                    .foregroundStyle(RBColor.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RBColor.cardBg.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
     @ViewBuilder
     private var mediaBlock: some View {
         if let photoURL = post.photoURL, let url = URL(string: photoURL) {
@@ -1633,7 +2346,7 @@ struct FeedCardView: View {
                         .resizable()
                         .scaledToFill()
                         .frame(maxWidth: .infinity)
-                        .frame(height: 300)
+                        .frame(height: post.isRunResult ? 260 : 300)
                         .clipped()
                 case .failure:
                     RoundedRectangle(cornerRadius: 0, style: .continuous)
@@ -1651,7 +2364,7 @@ struct FeedCardView: View {
                         .overlay(ProgressView().tint(RBColor.accent))
                 }
             }
-        } else {
+        } else if !post.isRunResult {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(
                     colors: [RBColor.accent.opacity(0.22), RBColor.cardBgLight],
@@ -1660,7 +2373,7 @@ struct FeedCardView: View {
                 )
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(appLanguage.text("RUN SNAP", "RUN SNAP"))
+                    Text(appLanguage.text("피드 스냅", "Run Snap"))
                         .font(RBFont.caption(10))
                         .foregroundStyle(RBColor.textTertiary)
                         .tracking(1.2)
@@ -1672,6 +2385,32 @@ struct FeedCardView: View {
                 .padding(18)
             }
             .frame(height: 220)
+        }
+    }
+
+    private var freeBoardContentBlock: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let dist = post.distanceKm, let pace = post.paceFormatted {
+                HStack(spacing: 10) {
+                    statPill(icon: "figure.run", value: String(format: "%.2f km", dist))
+                    statPill(icon: "speedometer", value: pace)
+                }
+            }
+
+            Text(post.content)
+                .font(RBFont.label(14))
+                .foregroundStyle(RBColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var runNarrativeBlock: some View {
+        if !trimmedContent.isEmpty {
+            Text(trimmedContent)
+                .font(RBFont.label(14))
+                .foregroundStyle(RBColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1770,6 +2509,107 @@ struct FeedCardView: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
+    private var resolvedHeadline: String {
+        let trimmedHeadline = (post.headline ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedHeadline.isEmpty {
+            return trimmedHeadline
+        }
+        return appLanguage.text("오늘의 러닝 결과", "Run Result")
+    }
+
+    private var trimmedContent: String {
+        post.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var distanceValueText: String {
+        String(format: "%.2f", post.distanceKm ?? 0)
+    }
+
+    private var runSummaryMetrics: [RunSummaryMetric] {
+        let metricKeys = post.selectedMetricKeys.isEmpty ? [RunShareMetricKey.duration, .pace] : post.selectedMetricKeys
+
+        return metricKeys.compactMap { metric in
+            switch metric {
+            case .duration:
+                guard let duration = post.durationFormatted else { return nil }
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: duration,
+                    subtitle: nil,
+                    accent: RBColor.accent
+                )
+            case .pace:
+                guard let pace = post.paceFormatted else { return nil }
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: pace,
+                    subtitle: nil,
+                    accent: RBColor.accent
+                )
+            case .averageHeartRate:
+                guard let averageHeartRateBpm = post.averageHeartRateBpm, averageHeartRateBpm > 0 else { return nil }
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: "\(averageHeartRateBpm) bpm",
+                    subtitle: nil,
+                    accent: RBColor.danger
+                )
+            case .averageSpeed:
+                guard let speed = post.averageSpeedKmh else { return nil }
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: String(format: "%.1f km/h", speed),
+                    subtitle: nil,
+                    accent: RBColor.success
+                )
+            case .cadence:
+                guard let cadence = post.cadenceSpm, cadence > 0 else { return nil }
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: "\(cadence) spm",
+                    subtitle: nil,
+                    accent: RBColor.success
+                )
+            case .elevationGain:
+                guard let elevation = post.elevationGainMeters else { return nil }
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: String(format: "%.0f m", elevation),
+                    subtitle: nil,
+                    accent: RBColor.accent
+                )
+            case .calories:
+                guard let calories = post.caloriesKcal else { return nil }
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: String(format: "%.0f kcal", calories),
+                    subtitle: nil,
+                    accent: .orange
+                )
+            case .goalDelta:
+                guard let delta = post.goalDeltaSeconds else { return nil }
+                let isGoalMet = delta <= 0
+                let value = isGoalMet
+                    ? appLanguage.text("목표 달성", "Goal Hit")
+                    : appLanguage.text(String(format: "+%d초", delta), String(format: "+%ds", delta))
+                return RunSummaryMetric(
+                    key: metric,
+                    title: metric.title(appLanguage),
+                    value: value,
+                    subtitle: post.targetPaceFormatted,
+                    accent: isGoalMet ? RBColor.success : RBColor.danger
+                )
+            }
+        }
+    }
+
     private func statPill(icon: String, value: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
@@ -1790,6 +2630,7 @@ struct FeedCardView: View {
 
 struct CreateMatePostView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @ObservedObject var viewModel: CommunityViewModel
     @State private var title = ""
     @State private var location = ""
@@ -1813,6 +2654,10 @@ struct CreateMatePostView: View {
         !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -1820,7 +2665,11 @@ struct CreateMatePostView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        inputField(title: "제목", placeholder: "러닝 메이트 모집 제목", text: $title)
+                        inputField(
+                            title: appLanguage.text("제목", "Title"),
+                            placeholder: appLanguage.text("러닝 메이트 모집 제목", "Running mate post title"),
+                            text: $title
+                        )
 
                         VStack(alignment: .leading, spacing: 8) {
                             Button {
@@ -1832,7 +2681,7 @@ struct CreateMatePostView: View {
                                     Image(systemName: "calendar")
                                         .font(.system(size: 13))
                                         .foregroundStyle(RBColor.accent)
-                                    Text("날짜 및 시간")
+                                    Text(appLanguage.text("날짜 및 시간", "Date & Time"))
                                         .font(RBFont.label(14))
                                         .foregroundStyle(RBColor.textPrimary)
                                     Spacer()
@@ -1854,7 +2703,7 @@ struct CreateMatePostView: View {
                                         .tint(RBColor.accent)
                                         .labelsHidden()
 
-                                    DatePicker("시간 선택", selection: $date, displayedComponents: .hourAndMinute)
+                                    DatePicker(appLanguage.text("시간 선택", "Choose time"), selection: $date, displayedComponents: .hourAndMinute)
                                         .font(RBFont.label(13))
                                         .foregroundStyle(RBColor.textPrimary)
                                         .tint(RBColor.accent)
@@ -1867,7 +2716,7 @@ struct CreateMatePostView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("모임 장소")
+                            Text(appLanguage.text("모임 장소", "Meetup location"))
                                 .font(RBFont.caption(11))
                                 .foregroundStyle(RBColor.textTertiary)
 
@@ -1875,7 +2724,7 @@ struct CreateMatePostView: View {
                                 Image(systemName: "magnifyingglass")
                                     .font(.system(size: 13))
                                     .foregroundStyle(RBColor.textTertiary)
-                                TextField("장소 검색 (예: 반포한강공원)", text: $locationSearchText)
+                                TextField(appLanguage.text("장소 검색 (예: 반포한강공원)", "Search a place (e.g. Banpo Hangang Park)"), text: $locationSearchText)
                                     .font(RBFont.label(14))
                                     .foregroundStyle(RBColor.textPrimary)
                                     .onSubmit { searchLocation() }
@@ -1944,7 +2793,7 @@ struct CreateMatePostView: View {
                             }
 
                             Map(position: $mapCameraPosition) {
-                                Annotation("모임 장소", coordinate: selectedCoordinate) {
+                                Annotation(appLanguage.text("모임 장소", "Meetup location"), coordinate: selectedCoordinate) {
                                     Image(systemName: "mappin.circle.fill")
                                         .font(.system(size: 28))
                                         .foregroundStyle(RBColor.accent)
@@ -1960,13 +2809,13 @@ struct CreateMatePostView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                         HStack(spacing: 12) {
-                            inputField(title: "목표 페이스", placeholder: "5'30\"", text: $targetPace)
-                            inputField(title: "목표 거리", placeholder: "5km", text: $targetDistance)
+                            inputField(title: appLanguage.text("목표 페이스", "Target pace"), placeholder: "5'30\"", text: $targetPace)
+                            inputField(title: appLanguage.text("목표 거리", "Target distance"), placeholder: "5km", text: $targetDistance)
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("최대 인원")
+                                Text(appLanguage.text("최대 인원", "Max members"))
                                     .font(RBFont.caption(11))
                                     .foregroundStyle(RBColor.textTertiary)
                                 Spacer()
@@ -1976,7 +2825,7 @@ struct CreateMatePostView: View {
                                         manualMemberText = "\(maxMembers)"
                                     }
                                 } label: {
-                                    Text(isManualMemberInput ? "버튼 모드" : "직접 입력")
+                                    Text(isManualMemberInput ? appLanguage.text("버튼 모드", "Stepper") : appLanguage.text("직접 입력", "Manual input"))
                                         .font(RBFont.caption(10))
                                         .foregroundStyle(RBColor.accent)
                                 }
@@ -1984,7 +2833,7 @@ struct CreateMatePostView: View {
 
                             if isManualMemberInput {
                                 HStack(spacing: 12) {
-                                    TextField("인원 수", text: $manualMemberText)
+                                    TextField(appLanguage.text("인원 수", "Members"), text: $manualMemberText)
                                         .font(RBFont.metric(24))
                                         .foregroundStyle(RBColor.textPrimary)
                                         .multilineTextAlignment(.center)
@@ -1997,7 +2846,7 @@ struct CreateMatePostView: View {
                                                 maxMembers = min(num, 50)
                                             }
                                         }
-                                    Text("명")
+                                    Text(appLanguage.text("명", "people"))
                                         .font(RBFont.label(14))
                                         .foregroundStyle(RBColor.textSecondary)
                                 }
@@ -2019,7 +2868,7 @@ struct CreateMatePostView: View {
                                     Text("\(maxMembers)")
                                         .font(RBFont.metric(28))
                                         .foregroundStyle(RBColor.textPrimary)
-                                    Text("명")
+                                    Text(appLanguage.text("명", "people"))
                                         .font(RBFont.label(14))
                                         .foregroundStyle(RBColor.textSecondary)
 
@@ -2043,7 +2892,7 @@ struct CreateMatePostView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("상세 설명")
+                            Text(appLanguage.text("상세 설명", "Details"))
                                 .font(RBFont.caption(11))
                                 .foregroundStyle(RBColor.textTertiary)
                             TextEditor(text: $description)
@@ -2059,7 +2908,7 @@ struct CreateMatePostView: View {
                         .background(RBColor.cardBg)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                        RBPrimaryButton("모집 글 올리기", icon: "paperplane.fill") {
+                        RBPrimaryButton(appLanguage.text("모집 글 올리기", "Post Meetup"), icon: "paperplane.fill") {
                             Task {
                                 let success = await viewModel.createMatePost(
                                     title: title,
@@ -2091,11 +2940,11 @@ struct CreateMatePostView: View {
                     .padding(.vertical, 16)
                 }
             }
-            .navigationTitle("러닝 메이트 모집")
+            .navigationTitle(appLanguage.text("러닝 메이트 모집", "Create Running Mate Post"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("취소") { dismiss() }
+                    Button(appLanguage.text("취소", "Cancel")) { dismiss() }
                         .foregroundStyle(RBColor.textSecondary)
                 }
             }
@@ -2104,8 +2953,8 @@ struct CreateMatePostView: View {
 
     private var dateFormatted: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "M/d (E) HH:mm"
-        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = appLanguage.isEnglish ? "MMM d (E) HH:mm" : "M/d (E) HH:mm"
+        formatter.locale = appLanguage.isEnglish ? Locale(identifier: "en") : Locale(identifier: "ko_KR")
         return formatter.string(from: date)
     }
 
@@ -2159,6 +3008,7 @@ struct CreateMatePostView: View {
 
 struct CreateFeedPostView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @ObservedObject var viewModel: CommunityViewModel
     @State private var content = ""
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -2166,6 +3016,10 @@ struct CreateFeedPostView: View {
 
     private var isValid: Bool {
         !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
     }
 
     var body: some View {
@@ -2176,7 +3030,7 @@ struct CreateFeedPostView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("내용")
+                            Text(appLanguage.text("내용", "Content"))
                                 .font(RBFont.caption(11))
                                 .foregroundStyle(RBColor.textTertiary)
 
@@ -2194,7 +3048,7 @@ struct CreateFeedPostView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("사진 (선택)")
+                            Text(appLanguage.text("사진 (선택)", "Photo (optional)"))
                                 .font(RBFont.caption(11))
                                 .foregroundStyle(RBColor.textTertiary)
 
@@ -2229,7 +3083,7 @@ struct CreateFeedPostView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "photo.on.rectangle.angled")
                                         .font(.system(size: 14))
-                                    Text(selectedPhotoData == nil ? "사진 추가" : "사진 변경")
+                                    Text(selectedPhotoData == nil ? appLanguage.text("사진 추가", "Add Photo") : appLanguage.text("사진 변경", "Change Photo"))
                                         .font(RBFont.label(13))
                                 }
                                 .foregroundStyle(RBColor.accent)
@@ -2252,7 +3106,7 @@ struct CreateFeedPostView: View {
 
                         Spacer(minLength: 20)
 
-                        RBPrimaryButton("게시하기", icon: "paperplane.fill") {
+                        RBPrimaryButton(appLanguage.text("게시하기", "Publish"), icon: "paperplane.fill") {
                             Task {
                                 let success = await viewModel.createFeedPost(
                                     content: content,
@@ -2277,11 +3131,11 @@ struct CreateFeedPostView: View {
                     .padding(.vertical, 16)
                 }
             }
-            .navigationTitle("글 작성")
+            .navigationTitle(appLanguage.text("글 작성", "Write Post"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("취소") { dismiss() }
+                    Button(appLanguage.text("취소", "Cancel")) { dismiss() }
                         .foregroundStyle(RBColor.textSecondary)
                 }
             }

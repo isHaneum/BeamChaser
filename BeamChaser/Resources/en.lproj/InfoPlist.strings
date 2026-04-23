@@ -1,0 +1,8 @@
+"NSBluetoothAlwaysUsageDescription" = "Bluetooth access is needed to connect to the BeamChaser laser device.";
+"NSContactsUsageDescription" = "Contacts access is needed to find runners in your contacts and send friend requests.";
+"NSHealthShareUsageDescription" = "Health data read access is needed to view your runs in Apple Health.";
+"NSHealthUpdateUsageDescription" = "Health data write access is needed to save running workouts to Apple Health.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Location access is needed to keep tracking your route in the background during a run.";
+"NSLocationWhenInUseUsageDescription" = "Location access is needed to track your run and show it on the map.";
+"NSMotionUsageDescription" = "Motion data is needed to improve distance and pace accuracy with the pedometer.";
+"NSPhotoLibraryUsageDescription" = "Photo library access is needed to attach photos to feed posts.";

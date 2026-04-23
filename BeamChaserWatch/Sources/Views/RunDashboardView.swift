@@ -99,7 +99,7 @@ struct RunDashboardView: View {
             ("페이스", PaceFormatter.format(session.snapshot.currentPaceSecondsPerKm)),
             ("시간",   elapsedText),
             ("거리",   String(format: "%.2f km", session.snapshot.distanceMeters / 1000)),
-            ("속도",   speedText)
+            ("케이던스", cadenceText)
         ]
         return LazyVGrid(
             columns: [GridItem(.flexible()), GridItem(.flexible())],
@@ -160,6 +160,12 @@ struct RunDashboardView: View {
         let pace = session.snapshot.currentPaceSecondsPerKm
         guard pace > 0, pace.isFinite, pace < 3600 else { return "--" }
         return String(format: "%.1f km/h", 3600.0 / pace)
+    }
+
+    private var cadenceText: String {
+        let cadence = session.snapshot.currentCadenceSpm
+        guard cadence > 0 else { return "--" }
+        return "\(cadence) spm"
     }
 }
 

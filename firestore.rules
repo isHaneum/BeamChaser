@@ -34,8 +34,9 @@ service cloud.firestore {
       // 친구 링크 서브컬렉션
       match /friends/{friendId} {
         allow read: if isSelf(uid);
-        // 본인 친구 목록에만 쓸 수 있음
-        allow write: if isSelf(uid);
+        allow create, update: if isSelf(uid)
+          && request.resource.data.friendId == friendId;
+        allow delete: if isSelf(uid);
       }
 
       // 차단 목록 서브컬렉션
@@ -43,6 +44,39 @@ service cloud.firestore {
         allow read: if isSelf(uid);
         allow write: if isSelf(uid);
       }
+    }
+
+    // friendRequests/{requestId} ──────────────────────────
+    match /friendRequests/{requestId} {
+      allow read: if isAuth()
+        && (resource.data.fromUserId == request.auth.uid
+          || resource.data.toUserId == request.auth.uid);
+
+      allow create: if isAuth()
+        && request.resource.data.fromUserId == request.auth.uid
+        && request.resource.data.toUserId is string
+        && request.resource.data.toUserId != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.source in ['manual', 'contacts']
+        && request.resource.data.respondedAt == null;
+
+      allow update: if isAuth() && (
+        (
+          resource.data.toUserId == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
+          && request.resource.data.status in ['accepted', 'rejected']
+        )
+        ||
+        (
+          resource.data.fromUserId == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
+          && request.resource.data.status == 'cancelled'
+        )
+      );
+
+      allow delete: if false;
     }
 
     // runs/{runId} ────────────────────────────────────────

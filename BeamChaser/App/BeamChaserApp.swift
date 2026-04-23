@@ -56,8 +56,10 @@ struct BeamChaserApp: App {
     @StateObject private var profileService = ProfileService()
     @StateObject private var authService = AuthService()
     @StateObject private var backendService = BackendService()
+    @StateObject private var nowPlayingService = NowPlayingService()
     @StateObject private var phoneSession = PhoneSessionManager()
     @StateObject private var voiceGuide = VoiceGuideService()
+    @State private var didHydrateRemoteRunHistory = false
 
     var body: some Scene {
         WindowGroup {
@@ -69,18 +71,37 @@ struct BeamChaserApp: App {
                 .environmentObject(profileService)
                 .environmentObject(authService)
                 .environmentObject(backendService)
+                .environmentObject(nowPlayingService)
                 .environmentObject(phoneSession)
                 .environmentObject(voiceGuide)
                 .onAppear {
                     // 서비스 간 의존성 주입
                     runSession.bleService = bleService
+                    runSession.locationService = locationService
                     runSession.healthKit.refreshAuthorizationStatus()
+                    nowPlayingService.activate()
                     syncRunnerProgress()
                     
                     // Watch 연동 서비스 주입
                     phoneSession.runSession      = runSession
                     phoneSession.bleService      = bleService
                     phoneSession.locationService = locationService
+
+                    if bleService.isConnected {
+                        locationService.startTrackingForBLETelemetryIfNeeded()
+                        runSession.startPhoneTelemetry()
+                    }
+                }
+                .onChange(of: bleService.isConnected) { _, isConnected in
+                    if isConnected {
+                        locationService.startTrackingForBLETelemetryIfNeeded()
+                        runSession.startPhoneTelemetry()
+                    } else {
+                        runSession.stopPhoneTelemetry()
+                        if runSession.runState == .idle || runSession.runState == .finished {
+                            locationService.stopTracking()
+                        }
+                    }
                 }
                 .onReceive(runSession.$savedRecords.dropFirst()) { _ in
                     syncRunnerProgress()
@@ -102,7 +123,7 @@ struct BeamChaserApp: App {
     private func syncRunnerProgress() {
         profileService.evaluateAfterRun(records: runSession.savedRecords)
 
-        Task {
+        Task { @MainActor in
             guard FirebaseApp.app() != nil, let authUser = Auth.auth().currentUser else { return }
 
             let displayName = profileService.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -112,6 +133,8 @@ struct BeamChaserApp: App {
             if backendService.currentUser == nil {
                 await backendService.loadOrCreateUser(authUser: authUser, displayName: displayName)
             }
+
+            await hydrateRemoteRunHistoryIfNeeded()
 
             let validRecords = runSession.savedRecords.filter { $0.totalDistanceMeters > 100 }
             let totalDistanceKm = validRecords.reduce(0.0) { $0 + $1.totalDistanceMeters / 1000.0 }
@@ -124,6 +147,27 @@ struct BeamChaserApp: App {
                 "totalRuns": validRecords.count,
                 "totalTimeSeconds": totalTimeSeconds,
             ])
+
+            await backendService.syncRunRecords(validRecords)
+            await backendService.syncChallengeProgress(
+                records: validRecords,
+                monthlyGoal: profileService.monthlyGoal
+            )
+            await backendService.loadCurrentChallengeProgress(monthlyGoal: profileService.monthlyGoal)
+        }
+    }
+
+    @MainActor
+    private func hydrateRemoteRunHistoryIfNeeded() async {
+        guard !didHydrateRemoteRunHistory else { return }
+        didHydrateRemoteRunHistory = true
+
+        do {
+            let remoteRecords = try await backendService.fetchRunHistory(limit: 200)
+                .compactMap { $0.toRunRecord() }
+            runSession.mergeRemoteRecords(remoteRecords)
+        } catch {
+            didHydrateRemoteRunHistory = false
         }
     }
 }

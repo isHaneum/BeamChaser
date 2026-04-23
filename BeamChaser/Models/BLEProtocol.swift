@@ -33,6 +33,8 @@ struct LaserCommand {
         case setDayMode      = 0x08  // + 1바이트 (0x00=OFF, 0x01=ON)
         case setSensitivity  = 0x09  // + 1바이트 (0~255, 짐벌 감도)
         case setCalibration  = 0x0A  // + 1바이트 (Int8 오프셋)
+        case phoneGPS        = 0x0B  // + 19바이트 (휴대폰 GPS 실시간 패킷)
+        case phoneControl    = 0x0C  // 앱 계산 기반 실시간 제어 프레임
     }
 
     let type: CommandType
@@ -99,6 +101,99 @@ struct LaserCommand {
     /// 캘리브레이션 오프셋 설정 (-90~90)
     static func setCalibration(offset: Int8) -> LaserCommand {
         LaserCommand(type: .setCalibration, payload: [UInt8(bitPattern: offset)])
+    }
+
+    /// 휴대폰 GPS 실시간 전송 패킷 (명령 포함 20바이트, 기본 BLE MTU 안전)
+    static func phoneGPS(_ payload: PhoneGPSPayload) -> LaserCommand {
+        var bytes: [UInt8] = []
+        bytes.appendInt32(payload.latitudeE7)
+        bytes.appendInt32(payload.longitudeE7)
+        bytes.appendUInt16(payload.speedCentimetersPerSecond)
+        bytes.appendUInt16(payload.courseCentidegrees)
+        bytes.appendUInt16(payload.horizontalAccuracyCentimeters)
+        bytes.appendUInt16(payload.distanceMeters)
+        bytes.appendUInt16(payload.elapsedSeconds)
+        bytes.append(payload.flags)
+        return LaserCommand(type: .phoneGPS, payload: bytes)
+    }
+
+    /// 앱에서 계산한 속도/페이스/레이저/서보 제어 프레임
+    static func phoneControl(_ payload: PhoneControlPayload) -> LaserCommand {
+        var bytes: [UInt8] = []
+        bytes.appendUInt16(payload.speedCentimetersPerSecond)
+        bytes.appendUInt16(payload.paceSecondsPerKm)
+        bytes.appendUInt16(payload.targetPaceSecondsPerKm)
+        bytes.appendUInt16(payload.distanceMeters)
+        bytes.appendUInt16(payload.elapsedSeconds)
+        bytes.appendInt16(payload.gapCentimeters)
+        bytes.append(payload.servoAngleDegrees)
+        bytes.append(payload.zone.rawValue)
+        bytes.append(payload.flags)
+        return LaserCommand(type: .phoneControl, payload: bytes)
+    }
+}
+
+// MARK: - 휴대폰 GPS 송신 페이로드
+
+struct PhoneGPSPayload: Equatable, Sendable {
+    /// latitude * 10,000,000
+    let latitudeE7: Int32
+    /// longitude * 10,000,000
+    let longitudeE7: Int32
+    /// fused/current speed in cm/s
+    let speedCentimetersPerSecond: UInt16
+    /// course * 100. Unknown = 0xFFFF.
+    let courseCentidegrees: UInt16
+    /// horizontal accuracy in cm
+    let horizontalAccuracyCentimeters: UInt16
+    /// app-side running distance in meters, clamped to UInt16
+    let distanceMeters: UInt16
+    /// current run elapsed seconds, clamped to UInt16
+    let elapsedSeconds: UInt16
+    /// bit0 valid fix, bit1 speed valid, bit2 course valid, bit3 stale fix
+    let flags: UInt8
+}
+
+// MARK: - 앱 계산 기반 실시간 제어 페이로드
+
+struct PhoneControlPayload: Equatable, Sendable {
+    /// fused/current speed in cm/s
+    let speedCentimetersPerSecond: UInt16
+    /// phone-calculated current pace in seconds/km
+    let paceSecondsPerKm: UInt16
+    /// target pace in seconds/km. Unknown = 0.
+    let targetPaceSecondsPerKm: UInt16
+    /// app-side running distance in meters, clamped to UInt16
+    let distanceMeters: UInt16
+    /// current run elapsed seconds, clamped to UInt16
+    let elapsedSeconds: UInt16
+    /// pacemaker gap in centimeters. Positive means runner is ahead.
+    let gapCentimeters: Int16
+    /// app-calculated servo target angle, 0...180
+    let servoAngleDegrees: UInt8
+    /// app-calculated laser zone
+    let zone: DeviceZone
+    /// bit0 laserOn, bit1 dayMode, bit2 gpsValid, bit3 staleFix, bit4 speedValid
+    let flags: UInt8
+}
+
+private extension Array where Element == UInt8 {
+    mutating func appendUInt16(_ value: UInt16) {
+        append(UInt8((value >> 8) & 0xFF))
+        append(UInt8(value & 0xFF))
+    }
+
+    mutating func appendInt32(_ value: Int32) {
+        let bitPattern = UInt32(bitPattern: value)
+        append(UInt8((bitPattern >> 24) & 0xFF))
+        append(UInt8((bitPattern >> 16) & 0xFF))
+        append(UInt8((bitPattern >> 8) & 0xFF))
+        append(UInt8(bitPattern & 0xFF))
+    }
+
+    mutating func appendInt16(_ value: Int16) {
+        let bitPattern = UInt16(bitPattern: value)
+        appendUInt16(bitPattern)
     }
 }
 

@@ -5,6 +5,7 @@ struct PaceSetupView: View {
     @State private var paceMinutes: Int = 5
     @State private var paceSeconds: Int = 30
     @State private var navigateToRun = false
+    @AppStorage("appLanguage") private var appLanguageRawValue = AppLanguage.system.rawValue
 
     // 독립적 목표 토글
     @State private var distanceGoalEnabled = false
@@ -34,9 +35,9 @@ struct PaceSetupView: View {
     // 탭 전환 (일반 / 인터벌)
     @State private var setupTab: SetupTab = .normal
 
-    enum SetupTab: String, CaseIterable {
-        case normal = "일반"
-        case interval = "인터벌"
+    enum SetupTab: CaseIterable {
+        case normal
+        case interval
     }
 
     private let presets: [(String, Int, Int)] = [
@@ -45,6 +46,10 @@ struct PaceSetupView: View {
 
     private let distancePresets: [Double] = [3.0, 5.0, 10.0, 21.1]
     private let secondsPresets: [Int] = [0, 10, 20, 30, 40, 50]
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRawValue) ?? .system
+    }
 
     var body: some View {
         ZStack {
@@ -55,7 +60,7 @@ struct PaceSetupView: View {
                     // 탭 선택 (일반 / 인터벌) — 맨 위
                     Picker("", selection: $setupTab) {
                         ForEach(SetupTab.allCases, id: \.self) { tab in
-                            Text(tab.rawValue).tag(tab)
+                            Text(setupTabTitle(tab)).tag(tab)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -96,37 +101,23 @@ struct PaceSetupView: View {
                 .frame(height: 28)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(setupTab == .interval ? "인터벌 준비" : "러닝 준비 완료")
-                            .font(RBFont.caption(10))
-                            .foregroundStyle(RBColor.textTertiary)
-                            .tracking(1)
-
-                        Text(startSummaryTitle)
-                            .font(RBFont.label(15))
-                            .foregroundStyle(RBColor.textPrimary)
-
-                        if !startSummaryItems.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(startSummaryItems, id: \.self) { item in
-                                        Text(item)
-                                            .font(RBFont.caption(11))
-                                            .foregroundStyle(RBColor.textSecondary)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 8)
-                                            .background(RBColor.cardBgLight)
-                                            .clipShape(Capsule())
-                                    }
+                    if !startSummaryItems.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(startSummaryItems, id: \.self) { item in
+                                    Text(item)
+                                        .font(RBFont.caption(11))
+                                        .foregroundStyle(RBColor.textSecondary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(RBColor.cardBgLight)
+                                        .clipShape(Capsule())
                                 }
                             }
                         }
                     }
-                    .padding(14)
-                    .background(RBColor.cardBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                    RBPrimaryButton(canStartRun ? "이 설정으로 시작" : "인터벌을 선택하세요", icon: "figure.run") {
+                    RBPrimaryButton(appLanguage.localized("러닝 시작"), icon: "figure.run") {
                         startRun()
                     }
                     .opacity(canStartRun ? 1 : 0.5)
@@ -137,7 +128,7 @@ struct PaceSetupView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 6)
-                .padding(.bottom, 12)
+                .padding(.bottom, RBLayout.tabBarClearance)
                 .background(RBColor.bg)
             }
         }
@@ -161,7 +152,7 @@ struct PaceSetupView: View {
                 HStack(spacing: 8) {
                     goalBox(
                         icon: "flag.checkered",
-                        label: "거리",
+                        label: appLanguage.localized("거리"),
                         value: distanceGoalEnabled ? String(format: "%.1f", targetDistanceKm) : "-",
                         unit: "km",
                         isOn: distanceGoalEnabled,
@@ -170,16 +161,16 @@ struct PaceSetupView: View {
                     )
                     goalBox(
                         icon: "clock",
-                        label: "시간",
+                        label: appLanguage.localized("시간"),
                         value: timeGoalEnabled ? "\(targetTimeMinutes)" : "-",
-                        unit: "분",
+                        unit: appLanguage.text("분", "min"),
                         isOn: timeGoalEnabled,
                         card: .time,
                         size: boxSize
                     )
                     goalBox(
                         icon: "speedometer",
-                        label: "페이스",
+                        label: appLanguage.localized("페이스"),
                         value: paceGoalEnabled ? "\(paceMinutes)'\(String(format: "%02d", paceSeconds))\"" : "-",
                         unit: "/km",
                         isOn: paceGoalEnabled,
@@ -342,74 +333,87 @@ struct PaceSetupView: View {
     }
 
     private var distanceSettingsPanel: some View {
-        VStack(spacing: 10) {
-            HStack(alignment: .lastTextBaseline, spacing: 4) {
-                Text(String(format: "%.1f", targetDistanceKm))
-                    .font(RBFont.metric(32))
-                    .foregroundStyle(RBColor.textPrimary)
-                Text("km")
-                    .font(RBFont.label(14))
-                    .foregroundStyle(RBColor.textSecondary)
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            panelCaption(appLanguage.text("거리 목표", "Distance Goal"))
 
-            HStack(spacing: 8) {
+            goalMetricStepper(
+                valueText: String(format: "%.1f", targetDistanceKm),
+                unitText: "km",
+                onMinus: { targetDistanceKm = max(1.0, targetDistanceKm - 0.5) },
+                onPlus: { targetDistanceKm = min(42.2, targetDistanceKm + 0.5) }
+            )
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 8)], spacing: 8) {
                 ForEach(distancePresets, id: \.self) { dist in
+                    let isSelected = abs(targetDistanceKm - dist) < 0.001
                     Button {
-                        withAnimation { targetDistanceKm = dist }
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                            targetDistanceKm = dist
+                        }
                     } label: {
-                        Text(dist == 21.1 ? "하프" : "\(Int(dist))km")
+                        Text(dist == 21.1 ? appLanguage.text("하프", "Half") : "\(Int(dist))km")
                             .font(RBFont.label(12))
-                            .foregroundStyle(targetDistanceKm == dist ? RBColor.textPrimary : RBColor.textSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(targetDistanceKm == dist ? RBColor.accent.opacity(0.3) : RBColor.cardBgLight)
-                            .clipShape(Capsule())
+                            .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(isSelected ? RBColor.accent.opacity(0.22) : RBColor.cardBgLight)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(isSelected ? RBColor.accent.opacity(0.65) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                            )
                     }
+                    .buttonStyle(.plain)
                 }
             }
-
-            Slider(value: $targetDistanceKm, in: 1.0...42.2, step: 0.5)
-                .tint(RBColor.accent)
 
             goalResetButton(card: .distance)
         }
     }
 
     private var timeSettingsPanel: some View {
-        VStack(spacing: 10) {
-            HStack(alignment: .lastTextBaseline, spacing: 4) {
-                Text("\(targetTimeMinutes)")
-                    .font(RBFont.metric(32))
-                    .foregroundStyle(RBColor.textPrimary)
-                Text("분")
-                    .font(RBFont.label(14))
-                    .foregroundStyle(RBColor.textSecondary)
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            panelCaption(appLanguage.text("시간 목표", "Time Goal"))
 
-            HStack(spacing: 8) {
+            goalMetricStepper(
+                valueText: "\(targetTimeMinutes)",
+                unitText: appLanguage.text("분", "min"),
+                onMinus: { targetTimeMinutes = max(5, targetTimeMinutes - 5) },
+                onPlus: { targetTimeMinutes = min(180, targetTimeMinutes + 5) }
+            )
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
                 ForEach([15, 20, 30, 45, 60], id: \.self) { mins in
+                    let isSelected = targetTimeMinutes == mins
                     Button {
-                        withAnimation { targetTimeMinutes = mins }
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                            targetTimeMinutes = mins
+                        }
                     } label: {
-                        Text("\(mins)분")
+                        Text(appLanguage.text("\(mins)분", "\(mins) min"))
                             .font(RBFont.label(12))
-                            .foregroundStyle(targetTimeMinutes == mins ? RBColor.textPrimary : RBColor.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(targetTimeMinutes == mins ? RBColor.accent.opacity(0.3) : RBColor.cardBgLight)
-                            .clipShape(Capsule())
+                            .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(isSelected ? RBColor.accent.opacity(0.22) : RBColor.cardBgLight)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(isSelected ? RBColor.accent.opacity(0.65) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                            )
                     }
+                    .buttonStyle(.plain)
                 }
             }
-
-            paceAdjuster(label: "분", value: $targetTimeMinutes, range: 5...180)
 
             goalResetButton(card: .time)
         }
     }
 
     private var paceSettingsPanel: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
+            panelCaption(appLanguage.text("페이스 목표", "Target Pace"))
+
             HStack(alignment: .lastTextBaseline, spacing: 0) {
                 Text(String(format: "%d", paceMinutes))
                     .font(RBFont.metric(52))
@@ -431,6 +435,7 @@ struct PaceSetupView: View {
 
             HStack(spacing: 8) {
                 ForEach(presets, id: \.0) { preset in
+                    let isSelected = paceMinutes == preset.1 && paceSeconds == preset.2
                     Button {
                         withAnimation(.spring(response: 0.3)) {
                             paceMinutes = preset.1
@@ -445,25 +450,39 @@ struct PaceSetupView: View {
                                 .foregroundStyle(RBColor.textSecondary)
                         }
                         .foregroundStyle(
-                            paceMinutes == preset.1 && paceSeconds == preset.2
-                                ? RBColor.textPrimary : RBColor.textSecondary
+                            isSelected ? RBColor.textPrimary : RBColor.textSecondary
                         )
                         .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                        .frame(height: 48)
                         .background(
-                            paceMinutes == preset.1 && paceSeconds == preset.2
-                                ? RBColor.accent.opacity(0.3) : RBColor.cardBgLight
+                            isSelected ? RBColor.accent.opacity(0.22) : RBColor.cardBgLight
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(isSelected ? RBColor.accent.opacity(0.65) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(.top, 4)
+            .padding(.top, 2)
 
-            paceAdjuster(label: "분", value: $paceMinutes, range: 2...12)
-                .padding(.top, 4)
+            HStack(spacing: 12) {
+                paceStepperColumn(
+                    title: appLanguage.text("분", "Min"),
+                    value: paceMinutes,
+                    onMinus: { paceMinutes = max(2, paceMinutes - 1) },
+                    onPlus: { paceMinutes = min(12, paceMinutes + 1) }
+                )
 
-            paceAdjuster(label: "초", value: $paceSeconds, range: 0...55, step: 5)
+                paceStepperColumn(
+                    title: appLanguage.text("초", "Sec"),
+                    value: paceSeconds,
+                    onMinus: { paceSeconds = max(0, paceSeconds - 5) },
+                    onPlus: { paceSeconds = min(55, paceSeconds + 5) }
+                )
+            }
 
             HStack(spacing: 8) {
                 ForEach(secondsPresets, id: \.self) { sec in
@@ -499,7 +518,7 @@ struct PaceSetupView: View {
                 expandedCard = nil
             }
         } label: {
-            Text("미설정")
+            Text(appLanguage.text("미설정", "Unset"))
                 .font(RBFont.label(13))
                 .foregroundStyle(RBColor.textTertiary)
                 .frame(maxWidth: .infinity)
@@ -524,7 +543,7 @@ struct PaceSetupView: View {
                 HStack {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 18))
-                    Text("직접 만들기")
+                    Text(appLanguage.text("직접 만들기", "Create Custom"))
                         .font(RBFont.label(15))
                     Spacer()
                     Image(systemName: showCreateInterval ? "chevron.up" : "chevron.down")
@@ -546,7 +565,7 @@ struct PaceSetupView: View {
                 customIntervalBuilder
             }
 
-            Text("프리셋")
+            Text(appLanguage.text("프리셋", "Presets"))
                 .font(RBFont.caption(12))
                 .foregroundStyle(RBColor.textSecondary)
                 .tracking(1.5)
@@ -573,7 +592,7 @@ struct PaceSetupView: View {
     private var customIntervalBuilder: some View {
         VStack(spacing: 12) {
             // 이름
-            TextField("인터벌 이름", text: $customIntervalName)
+            TextField(appLanguage.text("인터벌 이름", "Interval Name"), text: $customIntervalName)
                 .font(RBFont.label(15))
                 .foregroundStyle(RBColor.textPrimary)
                 .padding(12)
@@ -596,7 +615,7 @@ struct PaceSetupView: View {
                 HStack {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("구간 추가")
+                    Text(appLanguage.text("구간 추가", "Add Segment"))
                         .font(RBFont.label(13))
                 }
                 .foregroundStyle(RBColor.textSecondary)
@@ -609,7 +628,7 @@ struct PaceSetupView: View {
 
             // 총 거리 요약
             HStack {
-                Text("총 거리")
+                Text(appLanguage.text("총 거리", "Total Distance"))
                     .font(RBFont.label(13))
                     .foregroundStyle(RBColor.textSecondary)
                 Spacer()
@@ -621,14 +640,14 @@ struct PaceSetupView: View {
 
             // 적용
             Button {
-                let name = customIntervalName.isEmpty ? "커스텀 인터벌" : customIntervalName
+                let name = customIntervalName.isEmpty ? appLanguage.text("커스텀 인터벌", "Custom Interval") : customIntervalName
                 let program = IntervalProgram(name: name, segments: customSegments)
                 withAnimation(.spring(response: 0.3)) {
                     selectedInterval = program
                     showCreateInterval = false
                 }
             } label: {
-                Text("이 인터벌로 설정")
+                Text(appLanguage.text("이 인터벌로 설정", "Use This Interval"))
                     .font(RBFont.label(15))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -667,7 +686,7 @@ struct PaceSetupView: View {
     private func segmentNameMenu(index: Int, name: String, color: Color) -> some View {
         Menu {
             ForEach(["웜업", "본운동", "빠르게", "회복", "쿨다운", "1단계", "2단계", "3단계"], id: \.self) { newName in
-                Button(newName) {
+                Button(localizedSegmentName(newName)) {
                     let s = customSegments[index]
                     customSegments[index] = IntervalSegment(
                         name: newName, distanceKm: s.distanceKm,
@@ -676,7 +695,7 @@ struct PaceSetupView: View {
                 }
             }
         } label: {
-            Text(name)
+            Text(localizedSegmentName(name))
                 .font(RBFont.label(13))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10)
@@ -760,7 +779,7 @@ struct PaceSetupView: View {
         let isSelected = selectedInterval?.name == program.name
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(program.name)
+                Text(localizedProgramName(program.name))
                     .font(RBFont.label(16))
                     .foregroundStyle(RBColor.textPrimary)
                 Spacer()
@@ -776,7 +795,7 @@ struct PaceSetupView: View {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(segmentColor(segment))
                             .frame(height: 6)
-                        Text(segment.name)
+                        Text(localizedSegmentName(segment.name))
                             .font(RBFont.caption(8))
                             .foregroundStyle(RBColor.textTertiary)
                             .lineLimit(1)
@@ -793,7 +812,7 @@ struct PaceSetupView: View {
                             Circle()
                                 .fill(segmentColor(segment))
                                 .frame(width: 6, height: 6)
-                            Text(segment.name)
+                            Text(localizedSegmentName(segment.name))
                                 .font(RBFont.caption(11))
                                 .foregroundStyle(RBColor.textSecondary)
                             Spacer()
@@ -832,39 +851,27 @@ struct PaceSetupView: View {
         return true
     }
 
-    private var startSummaryTitle: String {
-        if setupTab == .interval {
-            return selectedInterval?.name ?? "시작할 인터벌 프로그램을 선택해 주세요"
-        }
-
-        if !distanceGoalEnabled && !timeGoalEnabled && !paceGoalEnabled {
-            return "자유 러닝으로 바로 시작합니다"
-        }
-
-        return "선택한 목표와 페이스로 러닝을 시작합니다"
-    }
-
     private var startSummaryItems: [String] {
         if setupTab == .interval {
             guard let selectedInterval else { return [] }
             return [
                 String(format: "%.1fkm", selectedInterval.totalDistanceKm),
-                "\(selectedInterval.segments.count)개 구간",
+                appLanguage.text("\(selectedInterval.segments.count)구간", "\(selectedInterval.segments.count) segments"),
             ]
         }
 
         var items: [String] = []
         if distanceGoalEnabled {
-            items.append(String(format: "거리 %.1fkm", targetDistanceKm))
+            items.append(appLanguage.text(String(format: "거리 %.1fkm", targetDistanceKm), String(format: "Distance %.1fkm", targetDistanceKm)))
         }
         if timeGoalEnabled {
-            items.append("시간 \(targetTimeMinutes)분")
+            items.append(appLanguage.text("시간 \(targetTimeMinutes)분", "Time \(targetTimeMinutes) min"))
         }
         if paceGoalEnabled {
-            items.append("페이스 \(paceMinutes)'\(String(format: "%02d", paceSeconds))\"/km")
+            items.append(appLanguage.text("페이스 \(paceMinutes)'\(String(format: "%02d", paceSeconds))\"/km", "Pace \(paceMinutes)'\(String(format: "%02d", paceSeconds))\"/km"))
         }
         if items.isEmpty {
-            items.append("자유 러닝")
+            items.append(appLanguage.text("자유 러닝", "Free Run"))
         }
         return items
     }
@@ -905,55 +912,144 @@ struct PaceSetupView: View {
 
     // MARK: - 페이스 조절기
 
-    private func paceAdjuster(label: String, value: Binding<Int>, range: ClosedRange<Int>, step: Int = 1) -> some View {
+    private func panelCaption(_ text: String) -> some View {
+        Text(text)
+            .font(RBFont.caption(11))
+            .foregroundStyle(RBColor.textTertiary)
+            .tracking(1)
+    }
+
+    private func goalMetricStepper(
+        valueText: String,
+        unitText: String,
+        onMinus: @escaping () -> Void,
+        onPlus: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 16) {
-            Text(label)
-                .font(RBFont.label(14))
-                .foregroundStyle(RBColor.textSecondary)
-                .frame(width: 28)
+            stepperActionButton(systemName: "minus", action: onMinus)
 
-            Button {
-                withAnimation(.spring(response: 0.2)) {
-                    let newVal = value.wrappedValue - step
-                    if newVal >= range.lowerBound { value.wrappedValue = newVal }
-                }
-            } label: {
-                Image(systemName: "minus")
-                    .font(.system(size: 16, weight: .bold))
+            HStack(alignment: .lastTextBaseline, spacing: 6) {
+                Text(valueText)
+                    .font(RBFont.metric(34))
                     .foregroundStyle(RBColor.textPrimary)
-                    .frame(width: 44, height: 44)
-                    .background(RBColor.cardBgLight)
-                    .clipShape(Circle())
+                Text(unitText)
+                    .font(RBFont.label(14))
+                    .foregroundStyle(RBColor.textSecondary)
             }
+            .frame(maxWidth: .infinity)
 
-            Spacer()
-
-            Text("\(value.wrappedValue)")
-                .font(RBFont.metric(28))
-                .foregroundStyle(RBColor.textPrimary)
-                .frame(width: 50)
-                .multilineTextAlignment(.center)
-
-            Spacer()
-
-            Button {
-                withAnimation(.spring(response: 0.2)) {
-                    let newVal = value.wrappedValue + step
-                    if newVal <= range.upperBound { value.wrappedValue = newVal }
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(RBColor.textPrimary)
-                    .frame(width: 44, height: 44)
-                    .background(RBColor.cardBgLight)
-                    .clipShape(Circle())
-            }
+            stepperActionButton(systemName: "plus", action: onPlus)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(RBColor.cardBg)
+        .padding(.vertical, 16)
+        .background(RBColor.cardBgLight)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(RBColor.divider.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    private func paceStepperColumn(
+        title: String,
+        value: Int,
+        onMinus: @escaping () -> Void,
+        onPlus: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(RBFont.caption(11))
+                .foregroundStyle(RBColor.textTertiary)
+                .tracking(1)
+
+            HStack(spacing: 10) {
+                stepperActionButton(systemName: "minus", compact: true, action: onMinus)
+
+                Text(String(format: "%02d", value))
+                    .font(RBFont.metric(28))
+                    .foregroundStyle(RBColor.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+
+                stepperActionButton(systemName: "plus", compact: true, action: onPlus)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(RBColor.cardBgLight)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(RBColor.divider.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    private func stepperActionButton(systemName: String, compact: Bool = false, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.86)) {
+                action()
+            }
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: compact ? 14 : 16, weight: .bold))
+                .foregroundStyle(RBColor.textPrimary)
+                .frame(width: compact ? 38 : 46, height: compact ? 38 : 46)
+                .background(RBColor.cardBg)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(RBColor.divider.opacity(0.65), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func setupTabTitle(_ tab: SetupTab) -> String {
+        switch tab {
+        case .normal:
+            return appLanguage.text("일반", "Standard")
+        case .interval:
+            return appLanguage.text("인터벌", "Interval")
+        }
+    }
+
+    private func localizedProgramName(_ name: String) -> String {
+        switch name {
+        case "5km 인터벌":
+            return appLanguage.text(name, "5K Interval")
+        case "웜업-본운동-쿨다운":
+            return appLanguage.text(name, "Warm-up Main Cool-down")
+        case "피라미드 인터벌":
+            return appLanguage.text(name, "Pyramid Interval")
+        default:
+            return name
+        }
+    }
+
+    private func localizedSegmentName(_ name: String) -> String {
+        switch name {
+        case "웜업":
+            return appLanguage.text(name, "Warm-up")
+        case "본운동":
+            return appLanguage.text(name, "Main")
+        case "빠르게":
+            return appLanguage.text(name, "Fast")
+        case "회복":
+            return appLanguage.text(name, "Recovery")
+        case "쿨다운":
+            return appLanguage.text(name, "Cool-down")
+        case "1단계":
+            return appLanguage.text(name, "Stage 1")
+        case "2단계":
+            return appLanguage.text(name, "Stage 2")
+        case "3단계":
+            return appLanguage.text(name, "Stage 3")
+        default:
+            if name.hasPrefix("구간 "), let number = name.split(separator: " ").last {
+                return appLanguage.text(name, "Segment \(number)")
+            }
+            return name
+        }
     }
 }
 

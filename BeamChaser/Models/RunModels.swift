@@ -13,6 +13,8 @@ struct RunRecord: Identifiable, Codable {
     var targetPace: PaceTarget?
     var runGoal: RunGoal?
     var intervalProgram: IntervalProgram?
+    var averageCadenceSpm: Int? = nil
+    var averageHeartRateBpm: Int? = nil
 
     var averagePaceSecondsPerKm: Double {
         guard totalDistanceMeters > 0 else { return 0 }
@@ -31,6 +33,59 @@ struct RunRecord: Identifiable, Codable {
         Self.formatDuration(elapsedSeconds)
     }
 
+    var formattedCadence: String {
+        guard let averageCadenceSpm, averageCadenceSpm > 0 else { return "--" }
+        return "\(averageCadenceSpm) spm"
+    }
+
+    var formattedAverageHeartRate: String {
+        guard let averageHeartRateBpm, averageHeartRateBpm > 0 else { return "-- bpm" }
+        return "\(averageHeartRateBpm) bpm"
+    }
+
+    var distanceKm: Double {
+        totalDistanceMeters / 1000.0
+    }
+
+    var averageSpeedKmh: Double {
+        guard elapsedSeconds > 0 else { return 0 }
+        return distanceKm / (elapsedSeconds / 3600.0)
+    }
+
+    var maxSpeedKmh: Double {
+        let maxSpeed = routePoints.map(\.speed).max() ?? 0
+        return maxSpeed * 3.6
+    }
+
+    var elevationGainMeters: Double {
+        guard routePoints.count >= 2 else { return 0 }
+        var gain: Double = 0
+        for index in 1..<routePoints.count {
+            let diff = routePoints[index].altitude - routePoints[index - 1].altitude
+            if diff > 0 { gain += diff }
+        }
+        return gain
+    }
+
+    var averageGPSAccuracyMeters: Double? {
+        let samples = routePoints
+            .map(\.horizontalAccuracy)
+            .filter { $0 > 0 && $0.isFinite }
+
+        guard !samples.isEmpty else { return nil }
+        return samples.reduce(0, +) / Double(samples.count)
+    }
+
+    var estimatedCaloriesKcal: Double {
+        let hours = elapsedSeconds / 3600.0
+        return 10.0 * 70.0 * hours
+    }
+
+    var goalDeltaSeconds: Int? {
+        guard let targetPace, averagePaceSecondsPerKm > 0 else { return nil }
+        return Int((averagePaceSecondsPerKm - targetPace.totalSecondsPerKm).rounded())
+    }
+
     static func formatPace(_ secondsPerKm: Double) -> String {
         guard secondsPerKm > 0, secondsPerKm.isFinite else { return "--:--" }
         let minutes = Int(secondsPerKm) / 60
@@ -46,6 +101,79 @@ struct RunRecord: Identifiable, Codable {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%02d:%02d", m, s)
+    }
+}
+
+enum RunShareMetricKey: String, CaseIterable, Codable, Identifiable {
+    case duration
+    case pace
+    case averageHeartRate
+    case averageSpeed
+    case cadence
+    case elevationGain
+    case calories
+    case goalDelta
+
+    var id: String { rawValue }
+
+    var symbolName: String {
+        switch self {
+        case .duration:
+            return "timer"
+        case .pace:
+            return "speedometer"
+        case .averageHeartRate:
+            return "heart.fill"
+        case .averageSpeed:
+            return "gauge.with.dots.needle.50percent"
+        case .cadence:
+            return "figure.run"
+        case .elevationGain:
+            return "mountain.2"
+        case .calories:
+            return "flame.fill"
+        case .goalDelta:
+            return "target"
+        }
+    }
+
+    func title(_ appLanguage: AppLanguage = .current) -> String {
+        switch self {
+        case .duration:
+            return appLanguage.text("시간", "Time")
+        case .pace:
+            return appLanguage.text("평균 페이스", "Average Pace")
+        case .averageHeartRate:
+            return appLanguage.text("평균 심박수", "Average Heart Rate")
+        case .averageSpeed:
+            return appLanguage.text("평균 속도", "Average Speed")
+        case .cadence:
+            return appLanguage.text("케이던스", "Cadence")
+        case .elevationGain:
+            return appLanguage.text("고도 상승", "Elevation Gain")
+        case .calories:
+            return appLanguage.text("칼로리", "Calories")
+        case .goalDelta:
+            return appLanguage.text("목표 결과", "Goal Result")
+        }
+    }
+}
+
+enum RunPresentationFormatter {
+    static func scheduleString(from date: Date, appLanguage: AppLanguage = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = appLanguage.isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "ko_KR")
+        formatter.dateFormat = appLanguage.isEnglish
+            ? "EEEE, MMM d, yyyy · h:mm a"
+            : "yyyy년 M월 d일 EEEE · HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static func shortWeekdayString(from date: Date, appLanguage: AppLanguage = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = appLanguage.isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "ko_KR")
+        formatter.dateFormat = appLanguage.isEnglish ? "EEE" : "E"
+        return formatter.string(from: date)
     }
 }
 
@@ -219,6 +347,20 @@ struct LaserCalibration: Codable {
         case chest = "가슴"
         case waist = "허리"
         case armband = "팔"
+
+        func displayName(_ appLanguage: AppLanguage = .current) -> String {
+            let englishName: String
+            switch self {
+            case .chest:
+                englishName = "Chest"
+            case .waist:
+                englishName = "Waist"
+            case .armband:
+                englishName = "Arm"
+            }
+
+            return appLanguage.text(rawValue, englishName)
+        }
 
         var heightRatio: Double {
             switch self {

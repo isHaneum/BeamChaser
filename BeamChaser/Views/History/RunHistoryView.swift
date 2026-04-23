@@ -2,6 +2,11 @@ import SwiftUI
 
 struct RunHistoryView: View {
     @EnvironmentObject var runSession: RunSessionManager
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
 
     var body: some View {
         NavigationStack {
@@ -36,10 +41,10 @@ struct RunHistoryView: View {
                         }
                         .padding(.top, 8)
                     }
-                    .contentMargins(.bottom, 130, for: .scrollContent)
+                    .contentMargins(.bottom, RBLayout.scrollBottomInset, for: .scrollContent)
                 }
             }
-            .navigationTitle("러닝 기록")
+            .navigationTitle(appLanguage.localized("러닝 기록"))
             .navigationBarTitleDisplayMode(.large)
         }
     }
@@ -55,19 +60,19 @@ struct RunHistoryView: View {
 
         return VStack(spacing: 12) {
             HStack {
-                Text("전체 통계".uppercased())
+                Text(appLanguage.localized("전체 통계").uppercased())
                     .font(RBFont.caption(10))
                     .foregroundStyle(RBColor.textTertiary)
                     .tracking(1)
                 Spacer()
-                Text("\(records.count)회 러닝")
+                Text(appLanguage.text("\(records.count)회 러닝", "\(records.count) runs"))
                     .font(RBFont.caption(12))
                     .foregroundStyle(RBColor.accent)
             }
 
             HStack(spacing: 0) {
                 VStack(spacing: 2) {
-                    Text("총 거리")
+                    Text(appLanguage.localized("총 거리"))
                         .font(RBFont.caption(9))
                         .foregroundStyle(RBColor.textTertiary)
                     HStack(alignment: .lastTextBaseline, spacing: 1) {
@@ -84,7 +89,7 @@ struct RunHistoryView: View {
                 Rectangle().fill(RBColor.divider).frame(width: 1, height: 36)
 
                 VStack(spacing: 2) {
-                    Text("총 시간")
+                    Text(appLanguage.localized("총 시간"))
                         .font(RBFont.caption(9))
                         .foregroundStyle(RBColor.textTertiary)
                     Text(RunRecord.formatDuration(totalTime))
@@ -96,7 +101,7 @@ struct RunHistoryView: View {
                 Rectangle().fill(RBColor.divider).frame(width: 1, height: 36)
 
                 VStack(spacing: 2) {
-                    Text("평균 페이스")
+                    Text(appLanguage.localized("평균 페이스"))
                         .font(RBFont.caption(9))
                         .foregroundStyle(RBColor.textTertiary)
                     Text(RunRecord.formatPace(avgPace))
@@ -111,7 +116,7 @@ struct RunHistoryView: View {
                 Rectangle().fill(RBColor.divider).frame(width: 1, height: 36)
 
                 VStack(spacing: 2) {
-                    Text("최고 페이스")
+                    Text(appLanguage.localized("최고 페이스"))
                         .font(RBFont.caption(9))
                         .foregroundStyle(RBColor.textTertiary)
                     Text(RunRecord.formatPace(bestPace))
@@ -145,7 +150,7 @@ struct RunHistoryView: View {
         return AnyView(
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("페이스 추이".uppercased())
+                    Text(appLanguage.localized("페이스 추이").uppercased())
                         .font(RBFont.caption(10))
                         .foregroundStyle(RBColor.textTertiary)
                         .tracking(1)
@@ -153,7 +158,7 @@ struct RunHistoryView: View {
                     HStack(spacing: 4) {
                         Image(systemName: isImproving ? "arrow.up.right" : "arrow.down.right")
                             .font(.system(size: 10, weight: .bold))
-                        Text(isImproving ? "향상 중" : "하락 중")
+                        Text(isImproving ? appLanguage.localized("향상 중") : appLanguage.localized("하락 중"))
                             .font(RBFont.caption(11))
                     }
                     .foregroundStyle(isImproving ? RBColor.success : RBColor.danger)
@@ -201,11 +206,11 @@ struct RunHistoryView: View {
 
                 // 최근 vs 처음 비교
                 HStack {
-                    Text("처음: \(RunRecord.formatPace(paces.first ?? 0))")
+                    Text(appLanguage.text("처음: \(RunRecord.formatPace(paces.first ?? 0))", "Start: \(RunRecord.formatPace(paces.first ?? 0))"))
                         .font(RBFont.caption(10))
                         .foregroundStyle(RBColor.textTertiary)
                     Spacer()
-                    Text("최근: \(RunRecord.formatPace(paces.last ?? 0))")
+                    Text(appLanguage.text("최근: \(RunRecord.formatPace(paces.last ?? 0))", "Latest: \(RunRecord.formatPace(paces.last ?? 0))"))
                         .font(RBFont.caption(10))
                         .foregroundStyle(isImproving ? RBColor.success : RBColor.danger)
                 }
@@ -223,10 +228,10 @@ struct RunHistoryView: View {
             Image(systemName: "figure.run.circle")
                 .font(.system(size: 56))
                 .foregroundStyle(RBColor.textTertiary)
-            Text("러닝 기록이 없습니다")
+            Text(appLanguage.localized("러닝 기록이 없습니다"))
                 .font(RBFont.label(17))
                 .foregroundStyle(RBColor.textSecondary)
-            Text("첫 러닝을 시작해보세요!")
+            Text(appLanguage.localized("첫 러닝을 시작해보세요!"))
                 .font(RBFont.caption(14))
                 .foregroundStyle(RBColor.textTertiary)
         }

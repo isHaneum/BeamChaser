@@ -1,5 +1,5 @@
 import SwiftUI
-import AuthenticationServices
+import PhotosUI
 
 struct ProfileView: View {
     @EnvironmentObject var profileService: ProfileService
@@ -13,6 +13,15 @@ struct ProfileView: View {
     @State private var showNicknameSheet = false
     @State private var nicknameInput = ""
     @State private var showBadgeExplorer = false
+    @State private var profilePhotoItem: PhotosPickerItem?
+    @State private var profilePhotoUIImage: UIImage?
+    @State private var remoteProfileImage: UIImage?
+    @State private var isUploadingPhoto = false
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
 
     var body: some View {
         NavigationStack {
@@ -33,9 +42,9 @@ struct ProfileView: View {
                     }
                     .padding(.horizontal, 16)
                 }
-                .contentMargins(.bottom, 130, for: .scrollContent)
+                .contentMargins(.bottom, RBLayout.scrollBottomInset, for: .scrollContent)
             }
-            .navigationTitle("프로필")
+            .navigationTitle(appLanguage.text("프로필", "Profile"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -66,12 +75,23 @@ struct ProfileView: View {
             }
             .onAppear {
                 authService.signInError = nil
+                authService.isAuthenticating = false  // 이전 시도에서 stuck된 경우 리셋
                 profileService.evaluateAfterRun(records: runSession.savedRecords)
                 // HealthKit에서 키 자동 가져오기
                 if healthKit.isAuthorized, let hkHeight = healthKit.userHeightCm {
                     let stored = UserDefaults.standard.integer(forKey: "userHeightCm")
                     if stored == 0 || stored == 170 {
                         UserDefaults.standard.set(hkHeight, forKey: "userHeightCm")
+                    }
+                }
+                // 백엔드 프로필 사진 다운로드
+                if let urlStr = backendService.currentUser?.photoURL,
+                   let url = URL(string: urlStr) {
+                    Task {
+                        if let (data, _) = try? await URLSession.shared.data(from: url),
+                           let img = UIImage(data: data) {
+                            remoteProfileImage = img
+                        }
                     }
                 }
             }
@@ -111,11 +131,16 @@ struct ProfileView: View {
                     .foregroundStyle(RBColor.textTertiary)
             }
 
-            Text("로그인하고 기록을 저장하세요")
+            Text(appLanguage.localized("로그인하고 기록을 저장하세요"))
                 .font(RBFont.label(15))
                 .foregroundStyle(RBColor.textSecondary)
 
-            SignInWithAppleButton(.signIn) { request in
+            LocalizedAppleSignInButton(
+                title: appLanguage.text("Apple로 로그인", "Sign in with Apple"),
+                height: 50,
+                cornerRadius: 12,
+                isAuthenticating: authService.isAuthenticating
+            ) { request in
                 authService.prepareAppleSignInRequest(request)
             } onCompletion: { result in
                 Task {
@@ -124,7 +149,6 @@ struct ProfileView: View {
                         if let name = authService.userName {
                             profileService.nickname = name
                         }
-                        // 닉네임이 기본값이면 설정 시트 표시
                         if profileService.nickname == "러너" || profileService.nickname.isEmpty {
                             nicknameInput = authService.userName ?? ""
                             showNicknameSheet = true
@@ -132,13 +156,14 @@ struct ProfileView: View {
                     }
                 }
             }
-            .signInWithAppleButtonStyle(.white)
-            .frame(height: 50)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .disabled(authService.isAuthenticating)
 
             if authService.isGoogleSignInAvailable {
-                Button {
+                GoogleBrandedSignInButton(
+                    title: appLanguage.text("Google로 로그인", "Sign in with Google"),
+                    height: 50,
+                    cornerRadius: 12,
+                    isAuthenticating: authService.isAuthenticating
+                ) {
                     Task {
                         await authService.signInWithGoogle(backendService: backendService)
                         if authService.isSignedIn {
@@ -151,24 +176,7 @@ struct ProfileView: View {
                             }
                         }
                     }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "globe")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("Google로 로그인")
-                            .font(RBFont.label(15))
-                    }
-                    .foregroundStyle(RBColor.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
                 }
-                .disabled(authService.isAuthenticating)
             }
 
             if authService.isAuthenticating {
@@ -176,7 +184,6 @@ struct ProfileView: View {
                     .tint(RBColor.accent)
             }
 
-            // 에러 메시지
             if let error = authService.signInError {
                 Text(error)
                     .font(RBFont.caption(11))
@@ -192,19 +199,58 @@ struct ProfileView: View {
 
     private var profileHeader: some View {
         VStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [RBColor.accent, RBColor.accent.opacity(0.6)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 80, height: 80)
+            // 프로필 사진 + 선택기
+            PhotosPicker(selection: $profilePhotoItem, matching: .images) {
+                ZStack(alignment: .bottomTrailing) {
+                    if let img = profilePhotoUIImage ?? remoteProfileImage {
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 80, height: 80)
+                            .clipShape(Circle())
+                    } else {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [RBColor.accent, RBColor.accent.opacity(0.6)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 80, height: 80)
+                            .overlay {
+                                Text(String((authService.userName ?? profileService.nickname).prefix(1)))
+                                    .font(RBFont.hero(32))
+                                    .foregroundStyle(RBColor.textPrimary)
+                            }
+                    }
 
-                Text(String((authService.userName ?? profileService.nickname).prefix(1)))
-                    .font(RBFont.hero(32))
-                    .foregroundStyle(RBColor.textPrimary)
+                    // 업로드 스피너 or 카메라 아이콘
+                    ZStack {
+                        Circle()
+                            .fill(RBColor.accent)
+                            .frame(width: 24, height: 24)
+                        if isUploadingPhoto {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .offset(x: 2, y: 2)
+                }
+            }
+            .onChange(of: profilePhotoItem) { _, newItem in
+                Task {
+                    guard let data = try? await newItem?.loadTransferable(type: Data.self),
+                          let uiImage = UIImage(data: data) else { return }
+                    profilePhotoUIImage = uiImage
+                    isUploadingPhoto = true
+                    _ = try? await backendService.uploadProfilePhoto(uiImage)
+                    isUploadingPhoto = false
+                }
             }
 
             Text(authService.userName ?? profileService.nickname)
@@ -227,7 +273,7 @@ struct ProfileView: View {
                     Image(systemName: "flame.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(.orange)
-                    Text("\(profileService.currentStreak)일 연속")
+                    Text(appLanguage.text("\(profileService.currentStreak)일 연속", "\(profileService.currentStreak)-day streak"))
                         .font(RBFont.caption(12))
                         .foregroundStyle(RBColor.accent)
                 }
@@ -257,19 +303,19 @@ struct ProfileView: View {
         return VStack(spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("RUNNER LEVEL")
+                    Text(appLanguage.text("러너 레벨", "Runner Level"))
                         .font(RBFont.caption(10))
                         .foregroundStyle(RBColor.textTertiary)
                         .tracking(1)
                     HStack(alignment: .lastTextBaseline, spacing: 6) {
-                        Text("LV.\(current.rank)")
+                        Text(appLanguage.text("레벨 \(current.rank)", "LV.\(current.rank)"))
                             .font(RBFont.metric(16))
                             .foregroundStyle(levelColor(current))
-                        Text(current.rawValue)
+                        Text(current.localizedName(appLanguage))
                             .font(RBFont.hero(24))
                             .foregroundStyle(levelColor(current))
                     }
-                    Text("누적 XP \(currentXP)")
+                    Text(appLanguage.text("\(currentXP) 경험치", "\(currentXP) XP"))
                         .font(RBFont.caption(12))
                         .foregroundStyle(RBColor.textSecondary)
                 }
@@ -283,7 +329,7 @@ struct ProfileView: View {
                         .shadow(color: levelColor(current).opacity(0.5), radius: 8)
 
                     if let nextLevel, let nextXP {
-                        Text("다음 \(nextLevel.rawValue)까지 \(max(0, nextXP - currentXP)) XP")
+                        Text(appLanguage.text("다음: \(nextLevel.localizedName(appLanguage)) · \(max(0, nextXP - currentXP)) 경험치", "Next: \(nextLevel.localizedName(appLanguage)) · \(max(0, nextXP - currentXP)) XP"))
                             .font(RBFont.caption(10))
                             .foregroundStyle(RBColor.textTertiary)
                             .multilineTextAlignment(.trailing)
@@ -293,16 +339,16 @@ struct ProfileView: View {
 
             VStack(spacing: 8) {
                 HStack {
-                    Text("\(currentXP) XP")
+                    Text(appLanguage.text("\(currentXP) 경험치", "\(currentXP) XP"))
                         .font(RBFont.caption(11))
                         .foregroundStyle(RBColor.textPrimary)
                     Spacer()
                     if let nextXP {
-                        Text("\(nextXP) XP")
+                        Text(appLanguage.text("\(nextXP) 경험치", "\(nextXP) XP"))
                             .font(RBFont.caption(11))
                             .foregroundStyle(RBColor.textTertiary)
                     } else {
-                        Text("MAX")
+                        Text(appLanguage.text("최고 단계", "Max"))
                             .font(RBFont.caption(11))
                             .foregroundStyle(RBColor.accent)
                     }
@@ -325,17 +371,6 @@ struct ProfileView: View {
                     }
                 }
                 .frame(height: 10)
-
-                if let nextLevel {
-                    Text("레벨이 오를수록 필요한 XP가 더 크게 증가합니다. 다음 등급은 \(nextLevel.rawValue)입니다.")
-                        .font(RBFont.caption(10))
-                        .foregroundStyle(RBColor.textTertiary)
-                        .multilineTextAlignment(.leading)
-                } else {
-                    Text("최고 등급에 도달했습니다. 지금은 모든 업적이 추가 XP 보너스로 반영됩니다.")
-                        .font(RBFont.caption(12))
-                        .foregroundStyle(RBColor.accent)
-                }
             }
         }
         .padding(16)
@@ -351,14 +386,14 @@ struct ProfileView: View {
 
         return VStack(spacing: 14) {
             HStack {
-                Text("이번 달 목표".uppercased())
+                Text(appLanguage.text("이번 달 목표", "Monthly Goals"))
                     .font(RBFont.caption(10))
                     .foregroundStyle(RBColor.textTertiary)
                     .tracking(1)
                 Spacer()
 
                 let month = Calendar.current.component(.month, from: Date())
-                Text("\(month)월")
+                Text(appLanguage.text("\(month)월", "Month \(month)"))
                     .font(RBFont.label(13))
                     .foregroundStyle(RBColor.textSecondary)
             }
@@ -369,7 +404,7 @@ struct ProfileView: View {
                     current: Double(progress.runs),
                     target: Double(goal.targetRunCount),
                     label: "러닝",
-                    valueText: "\(progress.runs)/\(goal.targetRunCount)회",
+                    valueText: appLanguage.text("\(progress.runs)/\(goal.targetRunCount)회", "\(progress.runs)/\(goal.targetRunCount) runs"),
                     color: RBColor.accent
                 )
 
@@ -406,7 +441,7 @@ struct ProfileView: View {
                     .font(RBFont.metric(16))
                     .foregroundStyle(RBColor.textPrimary)
             }
-            Text(label)
+            Text(appLanguage.localized(label))
                 .font(RBFont.caption(10))
                 .foregroundStyle(RBColor.textTertiary)
             Text(valueText)
@@ -425,7 +460,7 @@ struct ProfileView: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("뱃지 컬렉션".uppercased())
+                Text(appLanguage.text("뱃지 컬렉션", "Badge Collection"))
                     .font(RBFont.caption(10))
                     .foregroundStyle(RBColor.textTertiary)
                     .tracking(1)
@@ -448,12 +483,9 @@ struct ProfileView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "square.grid.2x2")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("세부 업적 보기")
+                    Text(appLanguage.localized("업적 보기"))
                         .font(RBFont.label(13))
                     Spacer()
-                    Text("카테고리별 분류")
-                        .font(RBFont.caption(11))
-                        .foregroundStyle(RBColor.textTertiary)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11, weight: .semibold))
                 }
@@ -485,9 +517,6 @@ struct ProfileView: View {
                 .foregroundStyle(isEarned ? .white : RBColor.textTertiary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Text(type.category.rawValue)
-                .font(RBFont.caption(8))
-                .foregroundStyle(isEarned ? RBColor.accent.opacity(0.85) : RBColor.textTertiary.opacity(0.55))
         }
     }
 
@@ -501,13 +530,13 @@ struct ProfileView: View {
         let bestPace = records.map(\.averagePaceSecondsPerKm).filter { $0 > 0 }.min() ?? 0
 
         return VStack(alignment: .leading, spacing: 12) {
-            Text("누적 통계".uppercased())
+            Text(appLanguage.text("누적 통계", "Lifetime Stats"))
                 .font(RBFont.caption(10))
                 .foregroundStyle(RBColor.textTertiary)
                 .tracking(1)
 
             HStack(spacing: 0) {
-                statBlock(label: "총 러닝", value: "\(records.count)", unit: "회")
+                statBlock(label: "총 러닝", value: "\(records.count)", unit: appLanguage.text("회", "runs"))
                 Rectangle().fill(RBColor.divider).frame(width: 1, height: 36)
                 statBlock(label: "총 거리", value: String(format: "%.1f", totalDist), unit: "km")
                 Rectangle().fill(RBColor.divider).frame(width: 1, height: 36)
@@ -521,7 +550,7 @@ struct ProfileView: View {
                 Rectangle().fill(RBColor.divider).frame(width: 1, height: 36)
                 statBlock(label: "최고 페이스", value: RunRecord.formatPace(bestPace), unit: "")
                 Rectangle().fill(RBColor.divider).frame(width: 1, height: 36)
-                statBlock(label: "연속 일수", value: "\(profileService.currentStreak)", unit: "일")
+                statBlock(label: "연속 일수", value: "\(profileService.currentStreak)", unit: appLanguage.text("일", "days"))
             }
 
             // 로그아웃
@@ -533,7 +562,7 @@ struct ProfileView: View {
                     HStack {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
                             .font(.system(size: 13))
-                        Text("로그아웃")
+                        Text(appLanguage.localized("로그아웃"))
                             .font(RBFont.caption(12))
                     }
                     .foregroundStyle(RBColor.textTertiary)
@@ -548,7 +577,7 @@ struct ProfileView: View {
 
     private func statBlock(label: String, value: String, unit: String) -> some View {
         VStack(spacing: 2) {
-            Text(label.uppercased())
+            Text(appLanguage.localized(label))
                 .font(RBFont.caption(9))
                 .foregroundStyle(RBColor.textTertiary)
                 .tracking(0.5)
@@ -593,7 +622,7 @@ struct ProfileView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("뱃지 획득!")
+                Text(appLanguage.localized("뱃지 획득!"))
                     .font(RBFont.caption(10))
                     .foregroundStyle(RBColor.accent)
                 Text(badge.name)
@@ -638,16 +667,16 @@ struct ProfileView: View {
                                 .foregroundStyle(RBColor.accent)
                         }
 
-                        Text("닉네임 설정")
+                        Text(appLanguage.localized("닉네임 설정"))
                             .font(RBFont.label(20))
                             .foregroundStyle(RBColor.textPrimary)
-                        Text("다른 러너들에게 보여질 이름이에요")
+                        Text(appLanguage.localized("다른 러너들에게 보여질 이름이에요"))
                             .font(RBFont.caption(13))
                             .foregroundStyle(RBColor.textSecondary)
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        TextField("닉네임 입력", text: $nicknameInput)
+                        TextField(appLanguage.localized("닉네임 입력"), text: $nicknameInput)
                             .font(RBFont.label(17))
                             .padding(14)
                             .background(RBColor.cardBg)
@@ -659,7 +688,7 @@ struct ProfileView: View {
 
                         HStack {
                             if nicknameInput.count > 12 {
-                                Text("12자 이내로 입력해주세요")
+                                Text(appLanguage.localized("12자 이내로 입력해주세요"))
                                     .font(RBFont.caption(11))
                                     .foregroundStyle(RBColor.danger)
                             }
@@ -685,7 +714,7 @@ struct ProfileView: View {
                             showNicknameSheet = false
                         }
                     } label: {
-                        Text("저장")
+                        Text(appLanguage.localized("저장"))
                             .font(RBFont.label(16))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -707,7 +736,7 @@ struct ProfileView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("취소") { showNicknameSheet = false }
+                    Button(appLanguage.localized("취소")) { showNicknameSheet = false }
                         .foregroundStyle(RBColor.textSecondary)
                 }
             }
@@ -741,6 +770,11 @@ private enum BadgeExplorerFilter: String, CaseIterable, Identifiable {
 struct BadgeCollectionView: View {
     @EnvironmentObject private var profileService: ProfileService
     @State private var selectedFilter: BadgeExplorerFilter = .all
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
 
     private var earnedBadgeIds: Set<String> {
         Set(profileService.badges.filter(\.isEarned).map(\.id))
@@ -767,10 +801,10 @@ struct BadgeCollectionView: View {
                 }
             }
             .padding(16)
-            .padding(.bottom, 32)
         }
+        .contentMargins(.bottom, RBLayout.scrollBottomInset, for: .scrollContent)
         .background(RBColor.bg.ignoresSafeArea())
-        .navigationTitle("업적")
+        .navigationTitle(appLanguage.localized("업적"))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -789,14 +823,14 @@ struct BadgeCollectionView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("ACHIEVEMENTS")
+                    Text(appLanguage.text("업적", "Achievements"))
                         .font(RBFont.caption(10))
                         .foregroundStyle(RBColor.textTertiary)
                         .tracking(1)
-                    Text("LV.\(current.rank) \(current.rawValue)")
+                    Text(appLanguage.text("레벨 \(current.rank) \(current.localizedName(appLanguage))", "LV.\(current.rank) \(current.localizedName(appLanguage))"))
                         .font(RBFont.hero(24))
                         .foregroundStyle(levelColor(current))
-                    Text("획득 업적 \(earnedBadgeIds.count)개 · 누적 XP \(currentXP)")
+                    Text(appLanguage.text("업적 \(earnedBadgeIds.count)개 · \(currentXP) XP", "\(earnedBadgeIds.count) achievements · \(currentXP) XP"))
                         .font(RBFont.caption(12))
                         .foregroundStyle(RBColor.textSecondary)
                 }
@@ -830,16 +864,6 @@ struct BadgeCollectionView: View {
                 }
             }
             .frame(height: 10)
-
-            if let next, let nextXP {
-                Text("다음 레벨 \(next.rawValue)까지 \(max(0, nextXP - currentXP)) XP")
-                    .font(RBFont.caption(11))
-                    .foregroundStyle(RBColor.textTertiary)
-            } else {
-                Text("최고 등급입니다. 이후에는 업적과 누적 러닝이 XP 보너스로 계속 쌓입니다.")
-                    .font(RBFont.caption(11))
-                    .foregroundStyle(RBColor.accent)
-            }
         }
         .padding(18)
         .background(
@@ -866,7 +890,7 @@ struct BadgeCollectionView: View {
                                 Image(systemName: category.icon)
                                     .font(.system(size: 11, weight: .semibold))
                             }
-                            Text(filter.rawValue)
+                            Text(appLanguage.localized(filter.rawValue))
                                 .font(RBFont.label(12))
                         }
                         .foregroundStyle(selectedFilter == filter ? .white : RBColor.textSecondary)
@@ -901,7 +925,7 @@ struct BadgeCollectionView: View {
                                 .font(RBFont.label(12))
                                 .foregroundStyle(RBColor.textPrimary)
                         }
-                        Text("\(earned)/\(total) 완료")
+                        Text("\(earned)/\(total)")
                             .font(RBFont.caption(11))
                             .foregroundStyle(RBColor.textSecondary)
                     }
@@ -932,7 +956,7 @@ struct BadgeCollectionView: View {
 
                 Spacer()
 
-                Text(isEarned ? "획득" : "잠김")
+                Text(isEarned ? appLanguage.localized("획득") : appLanguage.localized("잠김"))
                     .font(RBFont.caption(10))
                     .foregroundStyle(isEarned ? RBColor.accent : RBColor.textTertiary)
                     .padding(.horizontal, 8)
@@ -952,18 +976,10 @@ struct BadgeCollectionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 6) {
-                Label(type.category.rawValue, systemImage: type.category.icon)
+            if let earnedDate = earnedBadge?.earnedDate {
+                Text(earnedDate.formatted(date: .abbreviated, time: .omitted))
                     .font(RBFont.caption(10))
                     .foregroundStyle(RBColor.textTertiary)
-
-                Spacer()
-
-                if let earnedDate = earnedBadge?.earnedDate {
-                    Text(earnedDate.formatted(date: .abbreviated, time: .omitted))
-                        .font(RBFont.caption(10))
-                        .foregroundStyle(RBColor.textTertiary)
-                }
             }
         }
         .padding(14)

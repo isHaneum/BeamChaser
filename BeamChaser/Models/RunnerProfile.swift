@@ -61,6 +61,26 @@ enum RunnerLevel: String, CaseIterable, Codable {
         guard let idx = all.firstIndex(of: self), idx + 1 < all.count else { return nil }
         return all[idx + 1]
     }
+
+    func localizedName(_ appLanguage: AppLanguage = .current) -> String {
+        let englishName: String
+        switch self {
+        case .starter:
+            englishName = "Starter"
+        case .bronze:
+            englishName = "Bronze"
+        case .silver:
+            englishName = "Silver"
+        case .gold:
+            englishName = "Gold"
+        case .laser:
+            englishName = "Laser"
+        case .beam:
+            englishName = "Beam Master"
+        }
+
+        return appLanguage.text(rawValue, englishName)
+    }
 }
 
 enum BadgeCategory: String, CaseIterable, Identifiable {

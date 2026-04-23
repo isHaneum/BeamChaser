@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct GameSelectView: View {
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
 
     var body: some View {
         ZStack {
@@ -13,10 +18,10 @@ struct GameSelectView: View {
                         Image(systemName: "laser.burst")
                             .font(.system(size: 28))
                             .foregroundStyle(RBColor.accent)
-                        Text("레이저로 즐기는 러닝 게임")
+                        Text(appLanguage.localized("레이저로 즐기는 러닝 게임"))
                             .font(RBFont.label(15))
                             .foregroundStyle(RBColor.textPrimary)
-                        Text("BeamChaser의 레이저를 활용해 다양한 게임 모드로\n더 재미있게 달려보세요!")
+                        Text(appLanguage.localized("BeamChaser의 레이저를 활용해 다양한 게임 모드로\n더 재미있게 달려보세요!"))
                             .font(RBFont.caption(12))
                             .foregroundStyle(RBColor.textSecondary)
                             .multilineTextAlignment(.center)
@@ -34,7 +39,7 @@ struct GameSelectView: View {
                 .padding(.vertical, 12)
             }
         }
-        .navigationTitle("게임 모드")
+        .navigationTitle(appLanguage.localized("게임 모드"))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -52,7 +57,7 @@ struct GameSelectView: View {
                     Text(game.rawValue)
                         .font(RBFont.label(16))
                         .foregroundStyle(RBColor.textPrimary)
-                    Text("준비 중")
+                    Text(appLanguage.localized("준비 중"))
                         .font(RBFont.caption(9))
                         .foregroundStyle(RBColor.accent)
                         .padding(.horizontal, 6)
@@ -88,16 +93,21 @@ struct GameSelectView: View {
 
     private func gameDescription(_ game: GameType) -> String {
         switch game {
-        case .heartRun: return "하트 모양 경로를 따라 달리며 레이저로 하트를 그려보세요"
-        case .appleRun: return "지도 위 사과를 수집하며 달리는 수집형 러닝"
-        case .hiFive: return "다른 러너와 만나면 하이파이브! 소셜 러닝 게임"
-        case .roadRun: return "지도 땅따먹기! 달린 도로를 점령하세요"
+        case .heartRun: return appLanguage.localized("하트 모양 경로를 따라 달리며 레이저로 하트를 그려보세요")
+        case .appleRun: return appLanguage.localized("지도 위 사과를 수집하며 달리는 수집형 러닝")
+        case .hiFive: return appLanguage.localized("다른 러너와 만나면 하이파이브! 소셜 러닝 게임")
+        case .roadRun: return appLanguage.localized("지도 땅따먹기! 달린 도로를 점령하세요")
         }
     }
 }
 
 struct GamePlaceholderView: View {
     let game: GameType
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
 
     var body: some View {
         ZStack {
@@ -112,11 +122,11 @@ struct GamePlaceholderView: View {
                     .font(RBFont.hero(24))
                     .foregroundStyle(RBColor.textPrimary)
 
-                Text("준비 중입니다")
+                Text(appLanguage.localized("준비 중입니다"))
                     .font(RBFont.label(15))
                     .foregroundStyle(RBColor.textSecondary)
 
-                Text("이 게임 모드는 향후 업데이트에서 제공될 예정입니다.")
+                Text(appLanguage.localized("이 게임 모드는 향후 업데이트에서 제공될 예정입니다."))
                     .font(RBFont.caption(13))
                     .foregroundStyle(RBColor.textTertiary)
                     .multilineTextAlignment(.center)

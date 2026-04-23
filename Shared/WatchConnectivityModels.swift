@@ -13,6 +13,7 @@ enum WCMessageKey {
     static let elapsedSeconds    = "elapsedSeconds"   // Double: 경과 시간
     static let distanceMeters    = "distanceMeters"   // Double: 달린 거리 (m)
     static let heartRate         = "heartRate"        // Int: 심박수 (bpm)
+    static let cadence           = "cadence"          // Int: 케이던스 (spm)
     static let gpsAccuracy       = "gpsAccuracy"      // Double: GPS 수평 정확도 (m)
     static let deviceBattery     = "deviceBattery"    // Int: 레이저 장치 배터리 (%)
     static let deviceConnected   = "deviceConnected"  // Bool: BLE 연결 여부
@@ -45,6 +46,7 @@ struct WatchRunSnapshot {
     var elapsedSeconds: Double = 0
     var distanceMeters: Double = 0
     var heartRate: Int = 0
+    var currentCadenceSpm: Int = 0
     var gpsAccuracy: Double = -1
     var deviceBattery: Int = 0
     var deviceConnected: Bool = false
@@ -61,6 +63,7 @@ struct WatchRunSnapshot {
             WCMessageKey.elapsedSeconds: elapsedSeconds,
             WCMessageKey.distanceMeters: distanceMeters,
             WCMessageKey.heartRate:      heartRate,
+            WCMessageKey.cadence:        currentCadenceSpm,
             WCMessageKey.gpsAccuracy:    gpsAccuracy,
             WCMessageKey.deviceBattery:  deviceBattery,
             WCMessageKey.deviceConnected: deviceConnected,
@@ -78,6 +81,7 @@ struct WatchRunSnapshot {
         elapsedSeconds            = dict[WCMessageKey.elapsedSeconds] as? Double ?? 0
         distanceMeters            = dict[WCMessageKey.distanceMeters] as? Double ?? 0
         heartRate                 = dict[WCMessageKey.heartRate]       as? Int    ?? 0
+        currentCadenceSpm         = dict[WCMessageKey.cadence]         as? Int    ?? 0
         gpsAccuracy               = dict[WCMessageKey.gpsAccuracy]    as? Double ?? -1
         deviceBattery             = dict[WCMessageKey.deviceBattery]  as? Int    ?? 0
         deviceConnected           = dict[WCMessageKey.deviceConnected] as? Bool  ?? false

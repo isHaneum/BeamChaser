@@ -12,10 +12,12 @@ final class HealthKitService: ObservableObject {
     @Published var isAuthorized = false
     @Published var authorizationError: String?
     @Published var currentHeartRate: Double = 0     // bpm
+    @Published var averageHeartRate: Double = 0     // bpm
     @Published var activeCalories: Double = 0       // kcal
     @Published var currentRunningPace: Double = 0   // seconds per km (워치/폰 운동 앱에서)
     @Published var isWorkoutActive = false
     @Published var userHeightCm: Int?  // 건강 앱에서 가져온 키
+    @Published private(set) var hasLiveHeartRate = false
 
     // MARK: - Private
 
@@ -25,6 +27,9 @@ final class HealthKitService: ObservableObject {
     private var heartRateQuery: HKAnchoredObjectQuery?
     private var runningSpeedQuery: HKAnchoredObjectQuery?
     private var workoutStartDate: Date?
+    private var heartRateSampleTotal: Double = 0
+    private var heartRateSampleCount: Int = 0
+    private var processedHeartRateSampleIDs: Set<UUID> = []
 
     init() {
         refreshAuthorizationStatus()
@@ -91,7 +96,7 @@ final class HealthKitService: ObservableObject {
                 authorizationError = nil
                 await fetchHeight()
             } else {
-                authorizationError = "건강 앱에서 RunBeam의 운동 기록 권한을 켜야 거리, 칼로리, 심박수 연동이 정상 동작합니다."
+                authorizationError = "건강 앱에서 BeamChaser의 운동 기록 권한을 켜야 거리, 칼로리, 심박수 연동이 정상 동작합니다."
             }
         } catch {
             // HealthKit entitlement 없거나 시스템 권한이 막힌 경우
@@ -148,7 +153,14 @@ final class HealthKitService: ObservableObject {
             workoutStartDate = Date()
             isWorkoutActive = true
             activeCalories = 0
+            currentHeartRate = 0
+            averageHeartRate = 0
+            currentRunningPace = 0
             hasRouteData = false
+            heartRateSampleTotal = 0
+            heartRateSampleCount = 0
+            hasLiveHeartRate = false
+            processedHeartRateSampleIDs.removeAll()
 
             startHeartRateQuery()
             startRunningSpeedQuery()
@@ -264,18 +276,24 @@ final class HealthKitService: ObservableObject {
         workoutStartDate = nil
         activeCalories = 0
         currentHeartRate = 0
+        averageHeartRate = 0
         currentRunningPace = 0
+        hasLiveHeartRate = false
         hasRouteData = false
+        heartRateSampleTotal = 0
+        heartRateSampleCount = 0
+        processedHeartRateSampleIDs.removeAll()
     }
 
     // MARK: - 심박수 실시간 모니터링
 
     private func startHeartRateQuery() {
         let heartRateType = HKQuantityType(.heartRate)
+        let startDate = Date().addingTimeInterval(-600)
 
         let query = HKAnchoredObjectQuery(
             type: heartRateType,
-            predicate: HKQuery.predicateForSamples(withStart: Date(), end: nil),
+            predicate: HKQuery.predicateForSamples(withStart: startDate, end: nil),
             anchor: nil,
             limit: HKObjectQueryNoLimit
         ) { [weak self] _, samples, _, _, _ in
@@ -299,12 +317,34 @@ final class HealthKitService: ObservableObject {
 
     /// nonisolated 래퍼 — HealthKit 콜백(nonisolated)에서 MainActor로 전달
     nonisolated private func handleHeartRateSamples(_ samples: [HKSample]?) {
-        guard let samples = samples as? [HKQuantitySample], let latest = samples.last else { return }
-        let bpm = latest.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+        guard let samples = samples as? [HKQuantitySample], !samples.isEmpty else { return }
 
         Task { @MainActor [weak self] in
-            self?.currentHeartRate = bpm
-            self?.estimateCalories(heartRate: bpm)
+            guard let self = self else { return }
+
+            let workoutStartDate = self.workoutStartDate ?? .distantPast
+            let freshSamples = samples
+                .filter { $0.endDate >= workoutStartDate }
+                .filter { !self.processedHeartRateSampleIDs.contains($0.uuid) }
+                .sorted { $0.endDate < $1.endDate }
+
+            if let latest = freshSamples.last ?? samples.last {
+                let bpm = latest.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+                self.currentHeartRate = bpm
+                self.hasLiveHeartRate = true
+                self.estimateCalories(heartRate: bpm)
+            }
+
+            for sample in freshSamples {
+                let bpm = sample.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+                self.heartRateSampleTotal += bpm
+                self.heartRateSampleCount += 1
+                self.processedHeartRateSampleIDs.insert(sample.uuid)
+            }
+
+            if self.heartRateSampleCount > 0 {
+                self.averageHeartRate = self.heartRateSampleTotal / Double(self.heartRateSampleCount)
+            }
         }
     }
 

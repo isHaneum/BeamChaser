@@ -10,6 +10,8 @@ struct OnboardingView: View {
     @Environment(\.openURL) private var openURL
 
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+    @AppStorage("appFontPreset") private var appFontPresetRaw: String = AppFontPreset.modern.rawValue
 
     // MARK: - 페이지 상태
 
@@ -62,6 +64,10 @@ struct OnboardingView: View {
     private let onboardingTextSecondary = Color(white: 0.84)
     private let onboardingTextMuted = Color(white: 0.62)
 
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -73,7 +79,7 @@ struct OnboardingView: View {
                 HStack {
                     Spacer()
                     if page.isFeaturePage {
-                        Button("건너뛰기") {
+                        Button(appLanguage.localized("건너뛰기")) {
                             withAnimation(.easeInOut(duration: 0.3)) { page = .legal }
                         }
                         .font(RBFont.caption(13))
@@ -125,7 +131,7 @@ struct OnboardingView: View {
                 icon: "waveform.path.ecg",
                 color: Color(red: 1.0, green: 0.3, blue: 0.3),
                 title: "레이저 페이스메이커",
-                body: "Bluetooth로 연결된 RunBeam 장치가 목표 페이스에 맞춰 레이저 마커를 실시간으로 조절합니다.\n앞으로 나아가야 할 거리를 눈으로 직접 확인하세요."
+                body: "Bluetooth로 연결된 BeamChaser 장치가 목표 페이스에 맞춰 레이저 마커를 실시간으로 조절합니다.\n앞으로 나아가야 할 거리를 눈으로 직접 확인하세요."
             )
         case .featureCommunity:
             featurePage(
@@ -164,13 +170,15 @@ struct OnboardingView: View {
             }
 
             VStack(spacing: 10) {
-                Text("RunBeam")
+                Text("BeamChaser")
                     .font(RBFont.hero(42))
                     .foregroundStyle(.white)
-                Text("러닝의 새로운 기준")
+                Text(appLanguage.localized("러닝의 새로운 기준"))
                     .font(RBFont.label(17))
                     .foregroundStyle(RBColor.textSecondary)
             }
+
+            fontPresetSelector
 
             VStack(spacing: 8) {
                 featurePill(icon: "location.fill",  text: "GPS 스마트 트래킹")
@@ -189,7 +197,7 @@ struct OnboardingView: View {
                 .font(.system(size: 14))
                 .foregroundStyle(RBColor.accent)
                 .frame(width: 24)
-            Text(text)
+            Text(appLanguage.localized(text))
                 .font(RBFont.caption(14))
                 .foregroundStyle(onboardingTextSecondary)
             Spacer()
@@ -205,6 +213,72 @@ struct OnboardingView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(onboardingStroke, lineWidth: 1)
         )
+    }
+
+    private var fontPresetSelector: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(appLanguage.localized("글꼴 스타일"))
+                    .font(RBFont.label(15))
+                    .foregroundStyle(.white)
+                Text(appLanguage.localized("처음부터 원하는 분위기로 앱을 시작해보세요. 설정에서도 다시 바꿀 수 있습니다."))
+                    .font(RBFont.caption(12))
+                    .foregroundStyle(onboardingTextMuted)
+            }
+
+            HStack(spacing: 10) {
+                ForEach(AppFontPreset.allCases, id: \.rawValue) { preset in
+                    onboardingFontOption(preset)
+                }
+            }
+        }
+        .padding(18)
+        .background(onboardingCardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(onboardingStroke, lineWidth: 1)
+        )
+    }
+
+    private func onboardingFontOption(_ preset: AppFontPreset) -> some View {
+        let isSelected = preset.rawValue == appFontPresetRaw
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                appFontPresetRaw = preset.rawValue
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: preset.icon)
+                        .font(.system(size: 12, weight: .bold))
+                    Text(preset.displayName(appLanguage))
+                        .font(preset.bodyFont(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(isSelected ? .white : onboardingTextSecondary)
+
+                Text(appLanguage.localized("오늘의 리듬"))
+                    .font(preset.titleFont(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+
+                Text(preset.description(appLanguage))
+                    .font(preset.bodyFont(size: 10, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.84) : onboardingTextMuted)
+                    .lineLimit(2)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? RBColor.accent.opacity(0.22) : onboardingCardHighlight)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? RBColor.accent : onboardingStroke, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Feature 페이지 (공통)
@@ -226,12 +300,12 @@ struct OnboardingView: View {
             }
 
             VStack(spacing: 14) {
-                Text(title)
+                Text(appLanguage.localized(title))
                     .font(RBFont.hero(26))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text(body)
+                Text(appLanguage.localized(body))
                     .font(RBFont.caption(15))
                     .foregroundStyle(onboardingTextSecondary)
                     .multilineTextAlignment(.center)
@@ -250,10 +324,10 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // 제목
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("서비스 이용 약관")
+                    Text(appLanguage.localized("서비스 이용 약관"))
                         .font(RBFont.hero(24))
                         .foregroundStyle(.white)
-                    Text("RunBeam 서비스 이용을 위해 아래 약관에 동의해주세요.\n필수 항목 전체 동의 후 다음 단계로 진행할 수 있습니다.")
+                    Text(appLanguage.localized("BeamChaser 서비스 이용을 위해 아래 약관에 동의해주세요.\n필수 항목 전체 동의 후 다음 단계로 진행할 수 있습니다."))
                         .font(RBFont.caption(12))
                         .foregroundStyle(onboardingTextSecondary)
                         .lineSpacing(3)
@@ -272,10 +346,10 @@ struct OnboardingView: View {
                         HStack(spacing: 12) {
                             checkIcon(allConsentsGiven)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("전체 동의 (선택 포함)")
+                                Text(appLanguage.localized("전체 동의 (선택 포함)"))
                                     .font(RBFont.label(16))
                                     .foregroundStyle(onboardingTextPrimary)
-                                Text("필수 3개와 선택 1개를 한 번에 설정합니다.")
+                                Text(appLanguage.localized("필수 3개와 선택 1개를 한 번에 설정합니다."))
                                     .font(RBFont.caption(12))
                                     .foregroundStyle(onboardingTextSecondary)
                             }
@@ -283,8 +357,8 @@ struct OnboardingView: View {
                         }
 
                         HStack(spacing: 8) {
-                            consentCountBadge(label: "필수", value: "3")
-                            consentCountBadge(label: "선택", value: "1")
+                            consentCountBadge(label: appLanguage.localized("필수"), value: "3")
+                            consentCountBadge(label: appLanguage.localized("선택"), value: "1")
                         }
                     }
                     .padding(16)
@@ -306,7 +380,7 @@ struct OnboardingView: View {
                         agreed: $agreePrivacy,
                         required: true,
                         title: "개인정보 처리방침 동의",
-                        summary: "회원가입 및 서비스 제공을 위해 성명, 이메일, 운동 기록 등 개인정보를 수집·이용합니다.",
+                        summary: LegalContent.document(for: .privacy).summary,
                         detail: privacyPolicyText,
                         showDetail: $showPrivacyDetail
                     )
@@ -315,7 +389,7 @@ struct OnboardingView: View {
                         agreed: $agreeLocation,
                         required: true,
                         title: "위치정보 수집·이용 동의",
-                        summary: "러닝 경로 추적, 지도 표시, 러닝 메이트 찾기를 위해 위치 정보를 수집합니다. 백그라운드에서도 사용될 수 있습니다.",
+                        summary: LegalContent.document(for: .location).summary,
                         detail: locationPolicyText,
                         showDetail: $showLocationDetail
                     )
@@ -324,7 +398,7 @@ struct OnboardingView: View {
                         agreed: $agreeHealth,
                         required: true,
                         title: "건강 데이터 수집·이용 동의",
-                        summary: "운동 기록(거리, 칼로리, 심박수 등)을 Apple 건강 앱에 저장하고 읽기 위해 HealthKit 접근 권한이 필요합니다.",
+                        summary: LegalContent.document(for: .health).summary,
                         detail: healthPolicyText,
                         showDetail: $showHealthDetail
                     )
@@ -333,7 +407,7 @@ struct OnboardingView: View {
                         agreed: $agreeMarketing,
                         required: false,
                         title: "마케팅 정보 수신 동의",
-                        summary: "RunBeam의 새 기능, 이벤트, 업데이트 정보를 알림으로 받을 수 있습니다.",
+                        summary: appLanguage.localized("BeamChaser의 새 기능, 이벤트, 업데이트 정보를 알림으로 받을 수 있습니다."),
                         detail: nil,
                         showDetail: .constant(false)
                     )
@@ -345,7 +419,7 @@ struct OnboardingView: View {
                         Image(systemName: "info.circle.fill")
                             .font(.system(size: 12))
                             .foregroundStyle(RBColor.accent)
-                        Text("필수 항목에 모두 동의해야 서비스를 이용할 수 있습니다.")
+                        Text(appLanguage.localized("필수 항목에 모두 동의해야 서비스를 이용할 수 있습니다."))
                             .font(RBFont.caption(11))
                             .foregroundStyle(onboardingTextMuted)
                     }
@@ -375,12 +449,12 @@ struct OnboardingView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(title)
+                        Text(appLanguage.localized(title))
                             .font(RBFont.label(14))
                             .foregroundStyle(onboardingTextPrimary)
                         requiredBadge(required)
                     }
-                    Text(summary)
+                    Text(appLanguage.localized(summary))
                         .font(RBFont.caption(12))
                         .foregroundStyle(onboardingTextSecondary)
                         .lineSpacing(3)
@@ -432,7 +506,7 @@ struct OnboardingView: View {
     @ViewBuilder
     private func requiredBadge(_ required: Bool) -> some View {
         if required {
-            Text("필수")
+            Text(appLanguage.localized("필수"))
                 .font(RBFont.caption(9))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -440,7 +514,7 @@ struct OnboardingView: View {
                 .background(RBColor.accent)
                 .clipShape(Capsule())
         } else {
-            Text("선택")
+            Text(appLanguage.localized("선택"))
                 .font(RBFont.caption(9))
                 .foregroundStyle(onboardingTextSecondary)
                 .padding(.horizontal, 6)
@@ -476,10 +550,10 @@ struct OnboardingView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 24) {
                 VStack(spacing: 8) {
-                    Text("권한 설정")
+                    Text(appLanguage.localized("권한 설정"))
                         .font(RBFont.hero(26))
                         .foregroundStyle(.white)
-                    Text("RunBeam이 제대로 동작하려면\n아래 권한이 필요합니다.")
+                    Text(appLanguage.localized("BeamChaser가 제대로 동작하려면\n아래 권한이 필요합니다."))
                         .font(RBFont.caption(14))
                         .foregroundStyle(onboardingTextSecondary)
                         .multilineTextAlignment(.center)
@@ -533,7 +607,7 @@ struct OnboardingView: View {
                     )
                 }
 
-                Text("권한은 나중에 설정 앱 → RunBeam에서 변경할 수 있습니다.")
+                Text(appLanguage.localized("권한은 나중에 설정 앱 → BeamChaser에서 변경할 수 있습니다."))
                     .font(RBFont.caption(12))
                     .foregroundStyle(onboardingTextMuted)
                     .multilineTextAlignment(.center)
@@ -624,15 +698,15 @@ struct OnboardingView: View {
     private var locationPermissionButtonTitle: String {
         let status = locationService.authorizationStatus
         if status == .authorizedAlways {
-            return "설정"
+            return appLanguage.localized("설정")
         }
         if status == .authorizedWhenInUse {
-            return "백그라운드 허용"
+            return appLanguage.localized("백그라운드 허용")
         }
         if status == .denied || status == .restricted {
-            return "설정 열기"
+            return appLanguage.localized("설정 열기")
         }
-        return locationRequested ? "다시 요청" : "켜기"
+        return locationRequested ? appLanguage.localized("다시 요청") : appLanguage.localized("켜기")
     }
 
     private var locationPermissionButtonEmphasis: Bool {
@@ -642,9 +716,9 @@ struct OnboardingView: View {
 
     private var healthPermissionButtonTitle: String {
         if healthKit.isAuthorized {
-            return "설정"
+            return appLanguage.localized("설정")
         }
-        return (healthRequested || healthKit.authorizationError != nil) ? "설정 열기" : "켜기"
+        return (healthRequested || healthKit.authorizationError != nil) ? appLanguage.localized("설정 열기") : appLanguage.localized("켜기")
     }
 
     private var healthPermissionButtonEmphasis: Bool {
@@ -698,22 +772,22 @@ struct OnboardingView: View {
     private var ctaButton: some View {
         switch page {
         case .welcome:
-            primaryButton("시작하기", icon: "arrow.right") {
+            primaryButton(appLanguage.localized("시작하기"), icon: "arrow.right") {
                 withAnimation(.easeInOut(duration: 0.3)) { page = .featureGPS }
             }
 
         case .featureGPS:
-            primaryButton("다음") {
+            primaryButton(appLanguage.localized("다음")) {
                 withAnimation(.easeInOut(duration: 0.3)) { page = .featureLaser }
             }
 
         case .featureLaser:
-            primaryButton("다음") {
+            primaryButton(appLanguage.localized("다음")) {
                 withAnimation(.easeInOut(duration: 0.3)) { page = .featureCommunity }
             }
 
         case .featureCommunity:
-            primaryButton("약관 동의하기") {
+            primaryButton(appLanguage.localized("약관 동의하기")) {
                 withAnimation(.easeInOut(duration: 0.3)) { page = .legal }
             }
 
@@ -721,7 +795,7 @@ struct OnboardingView: View {
             Button {
                 withAnimation(.easeInOut(duration: 0.3)) { page = .permissions }
             } label: {
-                Text("다음")
+                Text(appLanguage.localized("다음"))
                     .font(RBFont.label(17))
                     .foregroundStyle(requiredConsentsGiven ? .white : onboardingTextMuted)
                     .frame(maxWidth: .infinity)
@@ -736,7 +810,7 @@ struct OnboardingView: View {
             .disabled(!requiredConsentsGiven)
 
         case .permissions:
-            primaryButton("RunBeam 시작하기") {
+            primaryButton(appLanguage.localized("BeamChaser 시작하기")) {
                 // 마케팅 동의 저장
                 UserDefaults.standard.set(agreeMarketing, forKey: "agreedMarketing")
                 hasCompletedOnboarding = true
@@ -765,15 +839,15 @@ struct OnboardingView: View {
     // MARK: - 법률 전문 텍스트
 
     private var privacyPolicyText: String {
-        LegalContent.privacyPolicy
+        LegalContent.document(for: .privacy).body
     }
 
     private var locationPolicyText: String {
-        LegalContent.locationPolicy
+        LegalContent.document(for: .location).body
     }
 
     private var healthPolicyText: String {
-        LegalContent.healthPolicy
+        LegalContent.document(for: .health).body
     }
 }
 

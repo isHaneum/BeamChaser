@@ -4,10 +4,12 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .home
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+    @AppStorage("appFontPreset") private var appFontPresetRaw: String = AppFontPreset.modern.rawValue
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     @EnvironmentObject private var locationService: LocationService
     @EnvironmentObject private var healthKit: HealthKitService
+    @EnvironmentObject private var runSession: RunSessionManager
 
     private var appearanceMode: AppearanceMode {
         AppearanceMode(rawValue: appearanceModeRaw) ?? .system
@@ -33,10 +35,17 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            customTabBar
+            Group {
+                if shouldShowTabBar {
+                    customTabBar
+                }
+            }
         }
         .preferredColorScheme(appearanceMode.colorScheme)
         .environment(\.locale, appLanguage.locale)
+        .onChange(of: appFontPresetRaw) { _, _ in
+            // AppStorage changes trigger a root refresh so RBFont picks up the selected preset immediately.
+        }
         // 최초 실행 시에만 온보딩 풀스크린 표시
         .fullScreenCover(isPresented: Binding(
             get: { !hasCompletedOnboarding },
@@ -54,6 +63,10 @@ struct ContentView: View {
             .allowsHitTesting(selectedTab == tab)
             .accessibilityHidden(selectedTab != tab)
             .zIndex(selectedTab == tab ? 1 : 0)
+    }
+
+    private var shouldShowTabBar: Bool {
+        runSession.runState == .idle && runSession.currentRecord == nil
     }
 
     private var customTabBar: some View {
@@ -93,7 +106,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
-            .padding(.bottom, 12)
+            .padding(.bottom, 16)
         }
         .background(RBColor.bg.opacity(0.98).ignoresSafeArea())
     }

@@ -47,6 +47,47 @@ HM-10은 단일 Characteristic(FFE1)으로 읽기/쓰기/알림을 모두 처리
 | `setDayMode` | `0x08` | `0x00/0x01` | 주간 점멸 모드 설정 |
 | `setSensitivity` | `0x09` | `SS` (1바이트) | 짐벌 감도 설정 (0~255) |
 | `setCalibration` | `0x0A` | `OO` (1바이트) | 짐벌 캘리브레이션 오프셋 설정 (Int8) |
+| `phoneGPS` | `0x0B` | 19바이트 | 휴대폰 GPS 원본/보조 텔레메트리 |
+| `phoneControl` | `0x0C` | 15바이트 | 앱 계산 기반 실시간 제어 프레임 |
+
+### 휴대폰 GPS 패킷 (앱 → ESP32-S3)
+
+`0x0B`는 명령 바이트 포함 20바이트 고정 길이입니다. ESP32-S3가 자체 GPS를 쓰지 않고 휴대폰 GPS를 참고해야 할 때 사용합니다.
+
+```
+[0x0B] [latE7 4B] [lonE7 4B] [speedCmS 2B] [courseCdeg 2B] [accuracyCm 2B] [distanceM 2B] [elapsedS 2B] [flags 1B]
+```
+
+| 필드 | 형식 | 설명 |
+|------|------|------|
+| `latE7` | `Int32`, big-endian | 위도 * 10,000,000 |
+| `lonE7` | `Int32`, big-endian | 경도 * 10,000,000 |
+| `speedCmS` | `UInt16`, big-endian | 앱이 계산한 현재 속도 cm/s |
+| `courseCdeg` | `UInt16`, big-endian | 진행 방향 * 100, 알 수 없으면 `0xFFFF` |
+| `accuracyCm` | `UInt16`, big-endian | 수평 정확도 cm |
+| `distanceM` | `UInt16`, big-endian | 앱 누적 거리 m |
+| `elapsedS` | `UInt16`, big-endian | 러닝 경과 시간 초 |
+| `flags` | bit field | bit0=GPS valid, bit1=speed valid, bit2=course valid, bit3=stale fix |
+
+### 앱 계산 기반 제어 패킷 (앱 → ESP32-S3)
+
+권장 구조는 iPhone 앱을 컨트롤러로 두고 ESP32-S3는 액추에이터로 동작시키는 방식입니다. `0x0C`는 앱이 계산한 속도, 페이스, Zone, 레이저 상태, 서보 목표각을 ESP32-S3에 계속 전달합니다.
+
+```
+[0x0C] [speedCmS 2B] [paceSPerKm 2B] [targetPaceSPerKm 2B] [distanceM 2B] [elapsedS 2B] [gapCm 2B] [servoDeg 1B] [zone 1B] [flags 1B]
+```
+
+| 필드 | 형식 | 설명 |
+|------|------|------|
+| `speedCmS` | `UInt16`, big-endian | 휴대폰 센서 퓨전 기반 현재 속도 cm/s |
+| `paceSPerKm` | `UInt16`, big-endian | 앱 계산 현재 페이스 초/km |
+| `targetPaceSPerKm` | `UInt16`, big-endian | 목표 페이스 초/km, 없으면 `0` |
+| `distanceM` | `UInt16`, big-endian | 앱 누적 거리 m |
+| `elapsedS` | `UInt16`, big-endian | 러닝 경과 시간 초 |
+| `gapCm` | `Int16`, big-endian | 페이스메이커와의 차이 cm, 양수면 러너가 앞섬 |
+| `servoDeg` | `UInt8` | 앱 계산 서보 목표각 0~180 |
+| `zone` | `UInt8` | 0=없음, 1=파랑, 2=초록, 3=빨강 |
+| `flags` | bit field | bit0=laserOn, bit1=dayMode, bit2=GPS valid, bit3=stale fix, bit4=speed valid |
 
 ### 상태 패킷 (Arduino → 앱)
 

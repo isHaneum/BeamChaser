@@ -13,6 +13,14 @@ final class SessionSyncTests: XCTestCase {
         mockBLE = MockBLEService()
         runSession = RunSessionManager()
         runSession.bleService = mockBLE
+        runSession.clearAllSavedRecords()
+    }
+
+    override func tearDown() {
+        runSession?.clearAllSavedRecords()
+        runSession = nil
+        mockBLE = nil
+        super.tearDown()
     }
     
     func testStartRunSyncsWithBLE() {
@@ -50,5 +58,21 @@ final class SessionSyncTests: XCTestCase {
         // 실제로는 elapsedSeconds가 증가해야 함을 시뮬레이션
         // RunSessionManager 내부 타이머가 아닌 수동 업데이트가 가능한지 확인 필요
         // 현재 updatePace는 elapsedSeconds를 사용함
+    }
+
+    func testRunRecordPersistsLocallyWithoutSignIn() {
+        let target = PaceTarget(minutesPerKm: 5, secondsPerKm: 30)
+
+        runSession.startRun(target: target)
+        runSession.finishRun(routePoints: [], totalDistance: 120)
+
+        XCTAssertEqual(runSession.savedRecords.count, 1)
+        XCTAssertEqual(runSession.savedRecords.first?.totalDistanceMeters, 120)
+
+        let reloadedSession = RunSessionManager()
+        defer { reloadedSession.clearAllSavedRecords() }
+
+        XCTAssertEqual(reloadedSession.savedRecords.count, 1)
+        XCTAssertEqual(reloadedSession.savedRecords.first?.totalDistanceMeters, 120)
     }
 }

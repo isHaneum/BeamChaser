@@ -17,6 +17,8 @@
  *    0x08 MM: Day Mode (0:OFF, 1:ON)
  *    0x09 SS: Set Gimbal Sensitivity (0~255)
  *    0x0A OO: Set Calibration Offset (Int8)
+ *    0x0B [19B]: Phone GPS Telemetry (big-endian binary frame)
+ *    0x0C [15B]: Phone Control Frame (big-endian binary frame)
  *
  *  [하드웨어]
  *   - MPU6050: I2C (SDA:A4, SCL:A5)
@@ -27,9 +29,35 @@
  */
 
 #include <Wire.h>
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
+#include <HardwareSerial.h>
+
+class BeamServo {
+public:
+    bool attached() const { return attached_; }
+
+    void attach(int pin) {
+        pin_ = pin;
+        attached_ = true;
+    }
+
+    void write(int angle) {
+        angle_ = constrain(angle, 0, 180);
+    }
+
+    int read() const { return angle_; }
+
+private:
+    int pin_ = -1;
+    int angle_ = 85;
+    bool attached_ = false;
+};
+#else
 #include <Servo.h>
-#include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
+using BeamServo = Servo;
+#endif
 
 // ─────────── 핀 정의 ───────────
 static const uint8_t GPS_RX = 2;
@@ -44,10 +72,14 @@ static const uint8_t SERVO_PIN      = 7;
 static const uint8_t SWITCH_PIN     = 8;
 
 // ─────────── 라이브러리 객체 ───────────
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
+HardwareSerial gpsSS(1);
+HardwareSerial bleSS(2);
+#else
 SoftwareSerial gpsSS(GPS_RX, GPS_TX);
 SoftwareSerial bleSS(BLE_RX, BLE_TX);
-TinyGPSPlus gps;
-Servo servoTilt;
+#endif
+BeamServo servoTilt;
 
 // ─────────── IMU (MPU6050) ───────────
 const int MPU_ADDR = 0x68;
@@ -72,6 +104,11 @@ float    base_angle = 85.0f;  // 페이스에 따른 기준 각도
 #define CMD_SET_DAY_MODE   0x08
 #define CMD_SET_SENSITIVITY 0x09
 #define CMD_SET_CALIBRATION 0x0A
+#define CMD_PHONE_GPS      0x0B
+#define CMD_PHONE_CONTROL  0x0C
+
+#define PHONE_GPS_PAYLOAD_LEN 19
+#define PHONE_CONTROL_PAYLOAD_LEN 15
 
 #define STATUS_STX 0xAA
 #define STATUS_ETX 0x55
@@ -86,6 +123,32 @@ bool laserEnabled = false;
 bool dayMode      = false;
 bool appControlled = false;
 
+struct PhoneGPSFrame {
+    int32_t latitudeE7;
+    int32_t longitudeE7;
+    uint16_t speedCmS;
+    uint16_t courseCentidegrees;
+    uint16_t accuracyCm;
+    uint16_t distanceMeters;
+    uint16_t elapsedSeconds;
+    uint8_t flags;
+};
+
+struct PhoneControlFrame {
+    uint16_t speedCmS;
+    uint16_t paceSecondsPerKm;
+    uint16_t targetPaceSecondsPerKm;
+    uint16_t distanceMeters;
+    uint16_t elapsedSeconds;
+    int16_t gapCentimeters;
+    uint8_t servoAngleDegrees;
+    uint8_t zone;
+    uint8_t flags;
+};
+
+PhoneGPSFrame lastPhoneGPS = {0, 0, 0, 0, 0, 0, 0, 0};
+PhoneControlFrame lastPhoneControl = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+
 // ─────────── 페이스/거리 데이터 ───────────
 int targetPace_skm = 420;
 float filteredPace_skm = 1e6;
@@ -97,11 +160,38 @@ uint32_t lastGpsUpdate = 0;
 uint32_t lastBleUpdate = 0;
 uint32_t lastStatusSend = 0;
 
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
+static const int IMU_SDA_PIN = 21;
+static const int IMU_SCL_PIN = 22;
+
+inline void bleListen() {}
+inline void beginGPSSerial() {
+    gpsSS.begin(38400, SERIAL_8N1, GPS_RX, GPS_TX);
+}
+inline void beginBLESerial() {
+    bleSS.begin(9600, SERIAL_8N1, BLE_RX, BLE_TX);
+}
+#else
+inline void bleListen() {
+    bleSS.listen();
+}
+inline void beginGPSSerial() {
+    gpsSS.begin(38400);
+}
+inline void beginBLESerial() {
+    bleSS.begin(9600);
+}
+#endif
+
 // ================================================================
 //  IMU (MPU6050) 초기화 및 읽기
 // ================================================================
 void setupIMU() {
+    #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
+    Wire.begin(IMU_SDA_PIN, IMU_SCL_PIN);
+    #else
     Wire.begin();
+    #endif
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x6B); // PWR_MGMT_1
     Wire.write(0);    // wake up
@@ -180,24 +270,125 @@ void sendBLEStatus() {
         0x00, STATUS_ETX
     };
 
-    bleSS.listen();
+    bleListen();
     bleSS.write(packet, 12);
+}
+
+uint16_t readUInt16BE(const uint8_t* bytes) {
+    return ((uint16_t)bytes[0] << 8) | (uint16_t)bytes[1];
+}
+
+int16_t readInt16BE(const uint8_t* bytes) {
+    return (int16_t)readUInt16BE(bytes);
+}
+
+int32_t readInt32BE(const uint8_t* bytes) {
+    uint32_t bitPattern =
+        ((uint32_t)bytes[0] << 24) |
+        ((uint32_t)bytes[1] << 16) |
+        ((uint32_t)bytes[2] << 8) |
+        (uint32_t)bytes[3];
+    return (int32_t)bitPattern;
+}
+
+bool consumeCommand(uint8_t expectedCmd) {
+    bleListen();
+    if (bleSS.available() < 1) return false;
+    if (bleSS.peek() != expectedCmd) return false;
+    bleSS.read();
+    return true;
+}
+
+bool readCommandPayload(uint8_t expectedCmd, uint8_t* payload, size_t payloadLength) {
+    bleListen();
+    if (bleSS.available() < (int)(payloadLength + 1)) return false;
+    if (bleSS.peek() != expectedCmd) return false;
+
+    bleSS.read();
+    for (size_t i = 0; i < payloadLength; i++) {
+        payload[i] = (uint8_t)bleSS.read();
+    }
+    return true;
+}
+
+void applyPhoneGPSPayload(const uint8_t* payload) {
+    lastPhoneGPS.latitudeE7 = readInt32BE(payload);
+    lastPhoneGPS.longitudeE7 = readInt32BE(payload + 4);
+    lastPhoneGPS.speedCmS = readUInt16BE(payload + 8);
+    lastPhoneGPS.courseCentidegrees = readUInt16BE(payload + 10);
+    lastPhoneGPS.accuracyCm = readUInt16BE(payload + 12);
+    lastPhoneGPS.distanceMeters = readUInt16BE(payload + 14);
+    lastPhoneGPS.elapsedSeconds = readUInt16BE(payload + 16);
+    lastPhoneGPS.flags = payload[18];
+
+    if (lastPhoneGPS.distanceMeters > 0) {
+        totalDist_m = lastPhoneGPS.distanceMeters;
+    }
+}
+
+void applyPhoneControlPayload(const uint8_t* payload) {
+    lastPhoneControl.speedCmS = readUInt16BE(payload);
+    lastPhoneControl.paceSecondsPerKm = readUInt16BE(payload + 2);
+    lastPhoneControl.targetPaceSecondsPerKm = readUInt16BE(payload + 4);
+    lastPhoneControl.distanceMeters = readUInt16BE(payload + 6);
+    lastPhoneControl.elapsedSeconds = readUInt16BE(payload + 8);
+    lastPhoneControl.gapCentimeters = readInt16BE(payload + 10);
+    lastPhoneControl.servoAngleDegrees = payload[12];
+    lastPhoneControl.zone = payload[13];
+    lastPhoneControl.flags = payload[14];
+
+    appControlled = true;
+    laserEnabled = (lastPhoneControl.flags & 0x01) != 0;
+    dayMode = (lastPhoneControl.flags & 0x02) != 0;
+    if (lastPhoneControl.zone <= ZONE_RED) {
+        currentZone = (Zone)lastPhoneControl.zone;
+    }
+    if (lastPhoneControl.paceSecondsPerKm > 0) {
+        filteredPace_skm = lastPhoneControl.paceSecondsPerKm;
+    }
+    if (lastPhoneControl.distanceMeters > 0) {
+        totalDist_m = lastPhoneControl.distanceMeters;
+    }
 }
 
 // ================================================================
 //  명령 수신 처리 (v2.0)
 // ================================================================
 void processBLECommand() {
-    bleSS.listen();
+    bleListen();
     if (!bleSS.available()) return;
 
-    uint8_t cmd = bleSS.read();
+    uint8_t cmd = (uint8_t)bleSS.peek();
     switch (cmd) {
-        case CMD_LASER_OFF: laserEnabled = false; break;
-        case CMD_LASER_ON:  laserEnabled = true; break;
-        case CMD_SET_PACE: 
-            if (bleSS.available() >= 2) {
-                targetPace_skm = (bleSS.read() << 8) | bleSS.read();
+        case CMD_LASER_OFF:
+            if (!consumeCommand(CMD_LASER_OFF)) return;
+            laserEnabled = false;
+            break;
+        case CMD_LASER_ON:
+            if (!consumeCommand(CMD_LASER_ON)) return;
+            laserEnabled = true;
+            break;
+        case CMD_SET_PACE: {
+            uint8_t payload[2];
+            if (!readCommandPayload(CMD_SET_PACE, payload, sizeof(payload))) return;
+            targetPace_skm = readUInt16BE(payload);
+            break;
+        }
+        case CMD_SET_ANGLE:
+            {
+                uint8_t payload[1];
+                if (!readCommandPayload(CMD_SET_ANGLE, payload, sizeof(payload))) return;
+                base_angle = constrain((float)payload[0], 0.0f, 180.0f);
+                servoTilt.write((int)base_angle);
+            }
+            break;
+        case CMD_SET_ZONE:
+            {
+                uint8_t payload[1];
+                if (!readCommandPayload(CMD_SET_ZONE, payload, sizeof(payload))) return;
+                if (payload[0] <= ZONE_RED) {
+                    currentZone = (Zone)payload[0];
+                }
             }
             break;
         case CMD_SET_ANGLE:
@@ -215,10 +406,29 @@ void processBLECommand() {
             }
             break;
         case CMD_SET_SENSITIVITY:
-            if (bleSS.available()) sensitivity = bleSS.read();
+            {
+                uint8_t payload[1];
+                if (!readCommandPayload(CMD_SET_SENSITIVITY, payload, sizeof(payload))) return;
+                sensitivity = payload[0];
+            }
             break;
         case CMD_SET_CALIBRATION:
-            if (bleSS.available()) calibrationOffset = (int8_t)bleSS.read();
+            {
+                uint8_t payload[1];
+                if (!readCommandPayload(CMD_SET_CALIBRATION, payload, sizeof(payload))) return;
+                calibrationOffset = (int8_t)payload[0];
+            }
+            break;
+        case CMD_REQUEST_STATUS:
+            if (!consumeCommand(CMD_REQUEST_STATUS)) return;
+            sendBLEStatus();
+            break;
+        case CMD_SET_DAY_MODE:
+            {
+                uint8_t payload[1];
+                if (!readCommandPayload(CMD_SET_DAY_MODE, payload, sizeof(payload))) return;
+                dayMode = payload[0] == 0x01;
+            }
             break;
         case CMD_REQUEST_STATUS:
             sendBLEStatus();
@@ -229,6 +439,7 @@ void processBLECommand() {
             }
             break;
         case CMD_START_RUN:
+            if (!consumeCommand(CMD_START_RUN)) return;
             mode = PACE_TRACK;
             runStart_ms = millis();
             totalDist_m = 0;
@@ -236,9 +447,27 @@ void processBLECommand() {
             appControlled = true;
             break;
         case CMD_STOP_RUN:
+            if (!consumeCommand(CMD_STOP_RUN)) return;
             mode = WAIT_SWITCH;
             laserEnabled = false;
             appControlled = false;
+            break;
+        case CMD_PHONE_GPS:
+            {
+                uint8_t payload[PHONE_GPS_PAYLOAD_LEN];
+                if (!readCommandPayload(CMD_PHONE_GPS, payload, sizeof(payload))) return;
+                applyPhoneGPSPayload(payload);
+            }
+            break;
+        case CMD_PHONE_CONTROL:
+            {
+                uint8_t payload[PHONE_CONTROL_PAYLOAD_LEN];
+                if (!readCommandPayload(CMD_PHONE_CONTROL, payload, sizeof(payload))) return;
+                applyPhoneControlPayload(payload);
+            }
+            break;
+        default:
+            bleSS.read();
             break;
     }
 }
@@ -248,8 +477,8 @@ void processBLECommand() {
 // ================================================================
 void setup() {
     Serial.begin(115200);
-    gpsSS.begin(38400);
-    bleSS.begin(9600);
+    beginGPSSerial();
+    beginBLESerial();
     setupIMU();
 
     pinMode(LASER_BASE_PIN, OUTPUT);
