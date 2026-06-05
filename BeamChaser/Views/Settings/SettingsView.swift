@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("laserAngleOffset") private var laserAngleOffset: Double = 0.0
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("appFontPreset") private var appFontPresetRaw: String = AppFontPreset.modern.rawValue
+    @AppStorage("appColorTheme") private var appColorThemeRaw: String = AppColorTheme.beam.rawValue
     @AppStorage("dayMode") private var dayMode: Bool = false
     @AppStorage("reviewCheckBLEDevice") private var reviewCheckBLEDevice = false
     @AppStorage("reviewCheckLocationDevice") private var reviewCheckLocationDevice = false
@@ -45,6 +46,10 @@ struct SettingsView: View {
 
     private var appLanguage: AppLanguage {
         AppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
+
+    private var isHealthDataAvailable: Bool {
+        HealthKitService.isAvailable
     }
 
     private var permissionCopyConfigured: Bool {
@@ -115,7 +120,14 @@ struct SettingsView: View {
                                         .font(.system(size: 16))
                                         .foregroundStyle(bleService.isConnected ? RBColor.success : RBColor.accent)
                                         .frame(width: 32)
-                                    Text(bleService.isConnected ? "연결됨: \(bleService.connectedDeviceName ?? "")" : "장치 연결")
+                                    Text(
+                                        bleService.isConnected
+                                        ? appLanguage.text(
+                                            "연결됨: \(bleService.connectedDeviceName ?? "")",
+                                            "Connected: \(bleService.connectedDeviceName ?? "")"
+                                        )
+                                        : appLanguage.text("장치 연결", "Connect Device")
+                                    )
                                         .font(RBFont.label(15))
                                         .foregroundStyle(RBColor.textPrimary)
                                     Spacer()
@@ -188,11 +200,16 @@ struct SettingsView: View {
                                         .foregroundStyle(RBColor.textSecondary)
                                 }
                                 Spacer()
-                                Toggle("", isOn: $dayMode)
-                                    .tint(Color.yellow)
-                                    .onChange(of: dayMode) { _, newValue in
+                                RBBarToggle(
+                                    title: nil,
+                                    isOn: $dayMode,
+                                    tint: RBColor.warning,
+                                    height: 32,
+                                    onChange: { newValue in
                                         bleService.setDayMode(newValue)
                                     }
+                                )
+                                .frame(width: 86)
                             }
                             .padding(14)
                         }
@@ -455,7 +472,11 @@ struct SettingsView: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: "heart.text.square.fill")
                                         .font(.system(size: 16))
-                                        .foregroundStyle(healthKit.isAuthorized ? RBColor.success : RBColor.accent)
+                                        .foregroundStyle(
+                                            healthKit.isAuthorized
+                                                ? RBColor.success
+                                                : (isHealthDataAvailable ? RBColor.accent : RBColor.textTertiary)
+                                        )
                                         .frame(width: 32)
                                     Text(appLanguage.localized("Apple 건강 앱 연동"))
                                         .font(RBFont.label(15))
@@ -465,6 +486,10 @@ struct SettingsView: View {
                                         Text(appLanguage.localized("연동됨"))
                                             .font(RBFont.caption(13))
                                             .foregroundStyle(RBColor.success)
+                                    } else if !isHealthDataAvailable {
+                                        Text(appLanguage.text("지원 안 됨", "Unavailable"))
+                                            .font(RBFont.caption(13))
+                                            .foregroundStyle(RBColor.textTertiary)
                                     } else {
                                         Text(appLanguage.localized("권한 요청"))
                                             .font(RBFont.caption(13))
@@ -473,6 +498,7 @@ struct SettingsView: View {
                                 }
                                 .padding(14)
                             }
+                            .disabled(!isHealthDataAvailable)
 
                             Divider().padding(.leading, 58).overlay(RBColor.divider)
 
@@ -576,7 +602,7 @@ struct SettingsView: View {
                                         Text(appLanguage.localized("계정 삭제"))
                                             .font(RBFont.label(15))
                                             .foregroundStyle(authService.isSignedIn ? RBColor.textPrimary : RBColor.textSecondary)
-                                        Text(authService.isSignedIn ? appLanguage.text("서버 데이터와 로컬 기록을 함께 삭제합니다.", "Deletes server data and local records together.") : appLanguage.text("로그인 후 사용할 수 있습니다.", "Available after sign-in."))
+                                        Text(authService.isSignedIn ? appLanguage.text("삭제 후 복구할 수 없습니다.", "This cannot be undone.") : appLanguage.text("로그인 후 사용할 수 있습니다.", "Available after sign-in."))
                                             .font(RBFont.caption(12))
                                             .foregroundStyle(RBColor.textSecondary)
                                     }
@@ -643,27 +669,37 @@ struct SettingsView: View {
 
                             Divider().padding(.leading, 58).overlay(RBColor.divider)
 
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: (AppFontPreset(rawValue: appFontPresetRaw) ?? .modern).icon)
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(RBColor.accent)
-                                        .frame(width: 32)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(appLanguage.localized("글꼴 스타일"))
-                                            .font(RBFont.label(15))
-                                            .foregroundStyle(RBColor.textPrimary)
-                                        Text(appLanguage.localized("온보딩과 러닝 화면을 포함한 주요 텍스트 분위기를 바꿉니다."))
-                                            .font(RBFont.caption(12))
-                                            .foregroundStyle(RBColor.textSecondary)
+                            VStack(alignment: .leading, spacing: 14) {
+                                selectionSectionHeader(
+                                    icon: (AppFontPreset(rawValue: appFontPresetRaw) ?? .modern).icon,
+                                    title: appLanguage.localized("글꼴 스타일"),
+                                    subtitle: appLanguage.text("앱 전체에 바로 반영됩니다.", "Applies across the app.")
+                                )
+
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 12) {
+                                        ForEach(AppFontPreset.allCases, id: \.rawValue) { preset in
+                                            fontPresetButton(preset)
+                                        }
                                     }
-                                    Spacer()
+                                    .padding(.horizontal, 1)
                                 }
 
-                                HStack(spacing: 10) {
-                                    ForEach(AppFontPreset.allCases, id: \.rawValue) { preset in
-                                        fontPresetButton(preset)
+                                Divider().overlay(RBColor.divider)
+
+                                selectionSectionHeader(
+                                    icon: currentAppColorTheme.icon,
+                                    title: appLanguage.text("앱 색상", "App Color"),
+                                    subtitle: appLanguage.text("버튼과 강조색에 적용됩니다.", "Used for buttons and highlights.")
+                                )
+
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 10) {
+                                        ForEach(AppColorTheme.allCases, id: \.rawValue) { theme in
+                                            colorThemeButton(theme)
+                                        }
                                     }
+                                    .padding(.horizontal, 1)
                                 }
 
                                 fontPreviewCard
@@ -759,9 +795,8 @@ struct SettingsView: View {
                 .font(RBFont.label(15))
                 .foregroundStyle(RBColor.textPrimary)
             Spacer()
-            Toggle("", isOn: isOn)
-                .tint(RBColor.accent)
-                .labelsHidden()
+            RBBarToggle(title: nil, isOn: isOn, height: 32)
+                .frame(width: 86)
         }
         .padding(14)
     }
@@ -811,6 +846,29 @@ struct SettingsView: View {
         .padding(14)
     }
 
+    private func selectionSectionHeader(icon: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(RBColor.accent)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(RBFont.label(15))
+                    .foregroundStyle(RBColor.textPrimary)
+
+                Text(subtitle)
+                    .font(RBFont.caption(12))
+                    .foregroundStyle(RBColor.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
     private func fontPresetButton(_ preset: AppFontPreset) -> some View {
         let isSelected = preset.rawValue == appFontPresetRaw
 
@@ -819,7 +877,7 @@ struct SettingsView: View {
                 appFontPresetRaw = preset.rawValue
             }
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: preset.icon)
                         .font(.system(size: 13, weight: .semibold))
@@ -829,17 +887,24 @@ struct SettingsView: View {
                 }
 
                 Text(appLanguage.text("BeamChaser", "BeamChaser"))
-                    .font(preset.titleFont(size: 18, weight: .bold))
+                    .font(preset.titleFont(size: 20, weight: .bold))
+                    .lineLimit(1)
+
+                Text(appLanguage.text("5.24 km   4'32\"/km", "5.24 km   4'32\"/km"))
+                    .font(preset.bodyFont(size: 12, weight: .medium))
+                    .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
                     .lineLimit(1)
 
                 Text(preset.description(appLanguage))
                     .font(preset.bodyFont(size: 11, weight: .medium))
-                    .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
+                    .foregroundStyle(RBColor.textSecondary)
                     .lineLimit(2)
+
+                Spacer(minLength: 0)
             }
             .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .frame(width: 168, height: 128, alignment: .leading)
+            .padding(14)
             .background(isSelected ? RBColor.accent.opacity(0.18) : RBColor.cardBgLight)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
@@ -853,25 +918,87 @@ struct SettingsView: View {
     private var fontPreviewCard: some View {
         let preset = AppFontPreset(rawValue: appFontPresetRaw) ?? .modern
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 12) {
             Text(appLanguage.localized("미리보기"))
                 .font(RBFont.caption(11))
                 .foregroundStyle(RBColor.textTertiary)
                 .tracking(1)
 
-            Text(appLanguage.localized("오늘 페이스는 가볍게, 리듬은 선명하게"))
-                .font(preset.titleFont(size: 20, weight: .bold))
-                .foregroundStyle(RBColor.textPrimary)
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(appLanguage.localized("오늘 페이스는 가볍게, 리듬은 선명하게"))
+                        .font(preset.titleFont(size: 20, weight: .bold))
+                        .foregroundStyle(RBColor.textPrimary)
 
-            Text(appLanguage.localized("홈, 온보딩, 설정, 러닝 화면의 주요 문구에 선택한 스타일이 반영됩니다. 숫자 지표는 가독성을 위해 안정적인 모노스페이스를 유지합니다."))
-                .font(preset.bodyFont(size: 12, weight: .medium))
-                .foregroundStyle(RBColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                    Text(appLanguage.text("주요 화면의 숫자와 버튼 강조색에 함께 적용됩니다.", "Applies to key text and button accents across the app."))
+                        .font(preset.bodyFont(size: 12, weight: .medium))
+                        .foregroundStyle(RBColor.textSecondary)
+                        .lineLimit(1)
+                }
+
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(currentAppColorTheme.primary)
+                    .frame(width: 44, height: 44)
+                    .overlay(
+                        Image(systemName: currentAppColorTheme.icon)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Color.white)
+                    )
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RBColor.cardBgLight)
+        .background(currentAppColorTheme.accentSurfaceLight)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func colorThemeButton(_ theme: AppColorTheme) -> some View {
+        let isSelected = theme.rawValue == appColorThemeRaw
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                appColorThemeRaw = theme.rawValue
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                LinearGradient(
+                    colors: [theme.primary, theme.secondary],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .frame(width: 104, height: 38)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.32), lineWidth: 1)
+                )
+
+                Text(theme.displayName(appLanguage))
+                    .font(RBFont.label(13))
+                    .lineLimit(1)
+
+                Text(appLanguage.text("브랜드 강조색", "Brand accent"))
+                    .font(RBFont.caption(11))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.84) : RBColor.textSecondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isSelected ? Color.white : RBColor.textPrimary)
+            .padding(12)
+            .frame(width: 128, height: 114, alignment: .leading)
+            .background(isSelected ? theme.primary : RBColor.cardBgLight)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? theme.primary : RBColor.divider.opacity(0.8), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var currentAppColorTheme: AppColorTheme {
+        AppColorTheme(rawValue: appColorThemeRaw) ?? .beam
     }
 
     // MARK: - Battery Helpers
@@ -1108,9 +1235,8 @@ private struct ReviewChecklistSheet: View {
 
             Spacer()
 
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .tint(RBColor.accent)
+            RBBarToggle(title: nil, isOn: isOn, height: 32)
+                .frame(width: 86)
         }
         .padding(14)
     }

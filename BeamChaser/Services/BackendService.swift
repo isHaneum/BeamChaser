@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
@@ -9,11 +10,14 @@ import Combine
 
 struct FirestoreUser: Codable {
     let uid: String
+    var username: String?
     var displayName: String
     var email: String
     var level: String
     var totalDistanceKm: Double
+    var totalDistance: Double?
     var totalRuns: Int
+    var runCount: Int?
     var totalTimeSeconds: Double
     var heightCm: Double?
     var photoURL: String?
@@ -23,16 +27,171 @@ struct FirestoreUser: Codable {
     static func from(authUser: User, name: String) -> FirestoreUser {
         FirestoreUser(
             uid: authUser.uid,
+            username: FirestorePublicUser.username(from: authUser.uid, email: authUser.email, displayName: name),
             displayName: name,
             email: authUser.email ?? "",
             level: RunnerLevel.starter.rawValue,
             totalDistanceKm: 0,
+            totalDistance: 0,
             totalRuns: 0,
+            runCount: 0,
             totalTimeSeconds: 0,
             heightCm: nil,
+            photoURL: authUser.photoURL?.absoluteString,
             createdAt: Date(),
             updatedAt: Date()
         )
+    }
+
+    var publicProfile: FirestorePublicUser {
+        FirestorePublicUser(from: self)
+    }
+
+    static func contactEmailHash(for email: String) -> String? {
+        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        let digest = SHA256.hash(data: Data(normalized.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+struct FirestorePublicUser: Codable {
+    let uid: String
+    var username: String?
+    var usernameLower: String?
+    var displayName: String
+    var displayNameLower: String?
+    var searchId: String?
+    var level: String
+    var totalDistanceKm: Double
+    var totalDistance: Double?
+    var totalRuns: Int
+    var runCount: Int?
+    var photoURL: String?
+    var contactEmailHash: String?
+    var updatedAt: Date
+
+    var resolvedUsername: String {
+        username ?? searchId ?? Self.username(from: uid, displayName: displayName)
+    }
+
+    var resolvedSearchId: String {
+        searchId ?? usernameLower ?? Self.normalizedSearchText(resolvedUsername)
+    }
+
+    var resolvedTotalDistanceKm: Double {
+        totalDistance ?? totalDistanceKm
+    }
+
+    var resolvedTotalRuns: Int {
+        runCount ?? totalRuns
+    }
+
+    static func normalizedSearchText(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    static func searchId(from uid: String) -> String {
+        let normalized = normalizedSearchText(uid)
+        return String(normalized.prefix(10))
+    }
+
+    static func username(from uid: String, email: String? = nil, displayName: String? = nil) -> String {
+        let candidates = [
+            email?.split(separator: "@").first.map(String.init),
+            displayName,
+            uid,
+        ]
+
+        let suffix = String(normalizedSearchText(uid).prefix(4))
+
+        for candidate in candidates {
+            let sanitized = sanitizedUsernameBase(candidate)
+            guard !sanitized.isEmpty else { continue }
+
+            let trimmedBase = String(sanitized.prefix(max(3, 12 - suffix.count)))
+            return normalizedSearchText(trimmedBase + suffix)
+        }
+
+        return normalizedSearchText("runner" + suffix)
+    }
+
+    private static func sanitizedUsernameBase(_ value: String?) -> String {
+        guard let value else { return "" }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_"))
+        return value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .unicodeScalars
+            .filter { allowed.contains($0) }
+            .map(String.init)
+            .joined()
+    }
+
+    init(from user: FirestoreUser) {
+        uid = user.uid
+        let resolvedUsername = user.username ?? Self.username(from: user.uid, email: user.email, displayName: user.displayName)
+        username = resolvedUsername
+        usernameLower = Self.normalizedSearchText(resolvedUsername)
+        displayName = user.displayName
+        displayNameLower = Self.normalizedSearchText(user.displayName)
+        searchId = usernameLower
+        level = user.level
+        totalDistanceKm = user.totalDistanceKm
+        totalDistance = user.totalDistance ?? user.totalDistanceKm
+        totalRuns = user.totalRuns
+        runCount = user.runCount ?? user.totalRuns
+        photoURL = user.photoURL
+        contactEmailHash = FirestoreUser.contactEmailHash(for: user.email)
+        updatedAt = user.updatedAt
+    }
+}
+
+enum FriendshipServiceError: LocalizedError {
+    case loginRequired
+    case unavailable
+    case cannotFriendYourself
+    case userNotFound
+    case blocked
+    case blockedByUser
+    case alreadyFriends
+    case outgoingPending
+    case incomingPending
+    case requestNotFound
+    case friendshipNotFound
+    case noPermission
+    case alreadyHandled
+
+    var errorDescription: String? {
+        switch self {
+        case .loginRequired:
+            return AppLanguage.current.text("로그인이 필요해요.", "Sign in is required.")
+        case .unavailable:
+            return AppLanguage.current.text("친구 기능을 지금 사용할 수 없어요.", "Friend features are unavailable right now.")
+        case .cannotFriendYourself:
+            return AppLanguage.current.text("자기 자신에게는 친구 요청을 보낼 수 없어요.", "You can't send a friend request to yourself.")
+        case .userNotFound:
+            return AppLanguage.current.text("상대방을 찾지 못했어요.", "Couldn't find that user.")
+        case .blocked:
+            return AppLanguage.current.text("차단한 사용자에게는 친구 요청을 보낼 수 없어요.", "You can't send a friend request to a blocked user.")
+        case .blockedByUser:
+            return AppLanguage.current.text("상대방과는 친구 요청을 주고받을 수 없어요.", "You can't exchange friend requests with that user.")
+        case .alreadyFriends:
+            return AppLanguage.current.text("이미 친구예요.", "You're already friends.")
+        case .outgoingPending:
+            return AppLanguage.current.text("이미 보낸 친구 요청이 있어요.", "A friend request is already pending.")
+        case .incomingPending:
+            return AppLanguage.current.text("상대방이 먼저 친구 요청을 보냈어요.", "That user already sent you a friend request.")
+        case .requestNotFound:
+            return AppLanguage.current.text("친구 요청을 찾지 못했어요.", "Couldn't find the friend request.")
+        case .friendshipNotFound:
+            return AppLanguage.current.text("친구 관계를 찾지 못했어요.", "Couldn't find the friendship.")
+        case .noPermission:
+            return AppLanguage.current.text("이 작업을 수행할 권한이 없어요.", "You don't have permission for this action.")
+        case .alreadyHandled:
+            return AppLanguage.current.text("이미 처리된 친구 요청이에요.", "This friend request has already been handled.")
+        }
     }
 }
 
@@ -51,6 +210,15 @@ struct FirestoreRunRecord: Codable, Identifiable {
     let goalTimeMinutes: Int?
     let averageCadenceSpm: Int?
     let averageHeartRateBpm: Int?
+    let caloriesEstimatedKcal: Double?
+    let heartRateSource: String?
+    let cadenceSource: String?
+    let elevationSource: String?
+    let gpsQuality: String?
+    let hasReliableElevation: Bool?
+    let hasReliableSpeed: Bool?
+    let hasReliableHeartRate: Bool?
+    let hasReliableCadence: Bool?
     let routeEncoded: String?
     let createdAt: Date
 }
@@ -272,22 +440,112 @@ struct FirestoreComment: Codable, Identifiable {
     let createdAt: Date
 }
 
-struct FirestoreFriendLink: Codable, Identifiable {
-    @DocumentID var docId: String?
-    var id: String
-    let friendId: String
-    let createdAt: Date
-}
-
 struct FirestoreFriendRequest: Codable, Identifiable {
     @DocumentID var docId: String?
     var id: String
-    let fromUserId: String
-    let toUserId: String
+    let requestId: String?
+    let fromUserId: String?
+    let toUserId: String?
+    let senderId: String?
+    let receiverId: String?
     let status: String
     let source: String
     let createdAt: Date
+    let updatedAt: Date?
     let respondedAt: Date?
+
+    var resolvedSenderId: String {
+        senderId ?? fromUserId ?? ""
+    }
+
+    var resolvedReceiverId: String {
+        receiverId ?? toUserId ?? ""
+    }
+
+    var documentId: String {
+        docId ?? id
+    }
+
+    func normalized(documentId: String) -> FirestoreFriendRequest {
+        var normalized = self
+        if normalized.id.isEmpty {
+            normalized.id = documentId
+        }
+        return normalized
+    }
+}
+
+struct FirestoreFriendship: Codable, Identifiable {
+    @DocumentID var docId: String?
+    var id: String
+    var friendshipId: String
+    let users: [String]
+    let status: String?
+    let createdAt: Date
+    let updatedAt: Date?
+    let removedBy: String?
+    let removedAt: Date?
+
+    var documentId: String {
+        docId ?? id
+    }
+
+    var isActive: Bool {
+        (status ?? "active") == "active"
+    }
+
+    func normalized(documentId: String) -> FirestoreFriendship {
+        var normalized = self
+        if normalized.id.isEmpty {
+            normalized.id = documentId
+        }
+        if normalized.friendshipId.isEmpty {
+            normalized.friendshipId = documentId
+        }
+        return normalized
+    }
+}
+
+struct FirestoreFollow: Codable, Identifiable {
+    @DocumentID var docId: String?
+    var id: String
+    let followerId: String
+    let followingId: String
+    let isActive: Bool
+    let createdAt: Date
+    let updatedAt: Date?
+
+    var documentId: String {
+        docId ?? id
+    }
+
+    func normalized(documentId: String) -> FirestoreFollow {
+        var normalized = self
+        if normalized.id.isEmpty {
+            normalized.id = documentId
+        }
+        return normalized
+    }
+}
+
+struct FirestoreBlock: Codable, Identifiable {
+    @DocumentID var docId: String?
+    var id: String
+    let blockerId: String
+    let blockedId: String
+    let createdAt: Date
+
+    var documentId: String {
+        docId ?? id
+    }
+
+    func normalized(documentId: String) -> FirestoreBlock {
+        var normalized = self
+        if normalized.id.isEmpty {
+            normalized.id = documentId
+        }
+        return normalized
+    }
 }
 
 struct FirestoreReport: Codable, Identifiable {
@@ -343,11 +601,15 @@ final class BackendService: ObservableObject {
     // MARK: - Collections
 
     private var usersCollection: CollectionReference? { db?.collection("users") }
+    private var publicUsersCollection: CollectionReference? { db?.collection("publicUsers") }
     private var runsCollection: CollectionReference? { db?.collection("runs") }
     private var matePostsCollection: CollectionReference? { db?.collection("matePosts") }
     private var feedPostsCollection: CollectionReference? { db?.collection("feedPosts") }
     private var reportsCollection: CollectionReference? { db?.collection("reports") }
     private var friendRequestsCollection: CollectionReference? { db?.collection("friendRequests") }
+    private var friendshipsCollection: CollectionReference? { db?.collection("friendships") }
+    private var followsCollection: CollectionReference? { db?.collection("follows") }
+    private var blocksCollection: CollectionReference? { db?.collection("blocks") }
 
     private func friendsCollection(for userId: String) -> CollectionReference? {
         usersCollection?.document(userId).collection("friends")
@@ -432,10 +694,42 @@ final class BackendService: ObservableObject {
         do {
             let doc = try await usersCollection.document(authUser.uid).getDocument()
             if doc.exists {
-                currentUser = try doc.data(as: FirestoreUser.self)
+                var user = try doc.data(as: FirestoreUser.self)
+                var updates: [String: Any] = [:]
+
+                if user.username?.isEmpty ?? true {
+                    let username = FirestorePublicUser.username(from: authUser.uid, email: authUser.email, displayName: user.displayName)
+                    user.username = username
+                    updates["username"] = username
+                }
+                if user.totalDistance == nil {
+                    user.totalDistance = user.totalDistanceKm
+                    updates["totalDistance"] = user.totalDistanceKm
+                }
+                if user.runCount == nil {
+                    user.runCount = user.totalRuns
+                    updates["runCount"] = user.totalRuns
+                }
+                if user.photoURL == nil, let authPhotoURL = authUser.photoURL?.absoluteString {
+                    user.photoURL = authPhotoURL
+                    updates["photoURL"] = authPhotoURL
+                }
+
+                if !updates.isEmpty {
+                    updates["updatedAt"] = FieldValue.serverTimestamp()
+                    try await usersCollection.document(authUser.uid).setData(updates, merge: true)
+                }
+
+                currentUser = user
+                if let publicUsersCollection {
+                    try await publicUsersCollection.document(authUser.uid).setData(from: user.publicProfile, merge: true)
+                }
             } else {
                 let newUser = FirestoreUser.from(authUser: authUser, name: displayName)
                 try usersCollection.document(authUser.uid).setData(from: newUser)
+                if let publicUsersCollection {
+                    try await publicUsersCollection.document(authUser.uid).setData(from: newUser.publicProfile)
+                }
                 currentUser = newUser
             }
         } catch {
@@ -446,21 +740,38 @@ final class BackendService: ObservableObject {
     func updateUserProfile(_ updates: [String: Any]) async {
         guard let uid = userId, let usersCollection = usersCollection else { return }
         var merged = updates
+        if let username = updates["username"] as? String {
+            merged["username"] = FirestorePublicUser.normalizedSearchText(username)
+        }
+        if let totalDistanceKm = updates["totalDistanceKm"] as? Double {
+            merged["totalDistance"] = totalDistanceKm
+        }
+        if let totalRuns = updates["totalRuns"] as? Int {
+            merged["runCount"] = totalRuns
+        }
         merged["updatedAt"] = FieldValue.serverTimestamp()
         do {
             try await usersCollection.document(uid).updateData(merged)
             if var currentUser {
+                if let username = merged["username"] as? String {
+                    currentUser.username = username
+                }
                 if let displayName = updates["displayName"] as? String {
                     currentUser.displayName = displayName
+                }
+                if let email = updates["email"] as? String {
+                    currentUser.email = email
                 }
                 if let level = updates["level"] as? String {
                     currentUser.level = level
                 }
                 if let totalDistanceKm = updates["totalDistanceKm"] as? Double {
                     currentUser.totalDistanceKm = totalDistanceKm
+                    currentUser.totalDistance = totalDistanceKm
                 }
                 if let totalRuns = updates["totalRuns"] as? Int {
                     currentUser.totalRuns = totalRuns
+                    currentUser.runCount = totalRuns
                 }
                 if let totalTimeSeconds = updates["totalTimeSeconds"] as? Double {
                     currentUser.totalTimeSeconds = totalTimeSeconds
@@ -468,7 +779,13 @@ final class BackendService: ObservableObject {
                 if let heightCm = updates["heightCm"] as? Double {
                     currentUser.heightCm = heightCm
                 }
+                if let photoURL = updates["photoURL"] as? String {
+                    currentUser.photoURL = photoURL
+                }
                 currentUser.updatedAt = Date()
+                if let publicUsersCollection {
+                    try await publicUsersCollection.document(uid).setData(from: currentUser.publicProfile, merge: true)
+                }
                 self.currentUser = currentUser
             }
         } catch {
@@ -486,7 +803,7 @@ final class BackendService: ObservableObject {
             throw makeError("이미지 변환에 실패했습니다.")
         }
 
-        let ref = storage.reference().child("profilePhotos/\(uid).jpg")
+        let ref = storage.reference().child("profile_photos/\(uid)/avatar.jpg")
         let metadata = StorageMetadata()
         metadata.contentType = "image/jpeg"
 
@@ -498,12 +815,84 @@ final class BackendService: ObservableObject {
         return urlString
     }
 
-    func fetchUsers(limit: Int = 100) async throws -> [FirestoreUser] {
-        guard let usersCollection = usersCollection else { return [] }
-        let snapshot = try await usersCollection
+    func fetchUsers(limit: Int = 100) async throws -> [FirestorePublicUser] {
+        guard let publicUsersCollection = publicUsersCollection else { return [] }
+        let snapshot = try await publicUsersCollection
             .limit(to: limit)
             .getDocuments()
-        return snapshot.documents.compactMap { try? $0.data(as: FirestoreUser.self) }
+        return snapshot.documents.compactMap { try? $0.data(as: FirestorePublicUser.self) }
+    }
+
+    func searchUsers(query: String, limit: Int = 20) async throws -> [FirestorePublicUser] {
+        guard let publicUsersCollection = publicUsersCollection else { return [] }
+
+        let normalized = FirestorePublicUser.normalizedSearchText(
+            query.replacingOccurrences(of: "@", with: "")
+        )
+        guard !normalized.isEmpty else { return [] }
+
+        let searchPrefix = String(normalized.prefix(24))
+
+        async let legacyIdTask = publicUsersCollection
+            .whereField("searchId", isGreaterThanOrEqualTo: searchPrefix)
+            .whereField("searchId", isLessThanOrEqualTo: searchPrefix + "\u{f8ff}")
+            .order(by: "searchId")
+            .limit(to: limit)
+            .getDocuments()
+
+        async let usernameTask = publicUsersCollection
+            .whereField("usernameLower", isGreaterThanOrEqualTo: searchPrefix)
+            .whereField("usernameLower", isLessThanOrEqualTo: searchPrefix + "\u{f8ff}")
+            .order(by: "usernameLower")
+            .limit(to: limit)
+            .getDocuments()
+
+        async let nameTask = publicUsersCollection
+            .whereField("displayNameLower", isGreaterThanOrEqualTo: searchPrefix)
+            .whereField("displayNameLower", isLessThanOrEqualTo: searchPrefix + "\u{f8ff}")
+            .order(by: "displayNameLower")
+            .limit(to: limit)
+            .getDocuments()
+
+        let snapshots = try await [legacyIdTask, usernameTask, nameTask]
+        var usersById: [String: FirestorePublicUser] = [:]
+
+        for snapshot in snapshots {
+            for document in snapshot.documents {
+                guard let user = try? document.data(as: FirestorePublicUser.self) else { continue }
+                usersById[user.uid] = user
+            }
+        }
+
+        return usersById.values.sorted { lhs, rhs in
+            let lhsId = lhs.usernameLower ?? lhs.searchId ?? FirestorePublicUser.searchId(from: lhs.uid)
+            let rhsId = rhs.usernameLower ?? rhs.searchId ?? FirestorePublicUser.searchId(from: rhs.uid)
+
+            let lhsMatchesId = lhsId.hasPrefix(searchPrefix)
+            let rhsMatchesId = rhsId.hasPrefix(searchPrefix)
+            if lhsMatchesId != rhsMatchesId {
+                return lhsMatchesId && !rhsMatchesId
+            }
+
+            let lhsName = lhs.displayNameLower ?? FirestorePublicUser.normalizedSearchText(lhs.displayName)
+            let rhsName = rhs.displayNameLower ?? FirestorePublicUser.normalizedSearchText(rhs.displayName)
+            let lhsMatchesName = lhsName.hasPrefix(searchPrefix)
+            let rhsMatchesName = rhsName.hasPrefix(searchPrefix)
+            if lhsMatchesName != rhsMatchesName {
+                return lhsMatchesName && !rhsMatchesName
+            }
+
+            if lhs.resolvedTotalDistanceKm == rhs.resolvedTotalDistanceKm {
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            return lhs.resolvedTotalDistanceKm > rhs.resolvedTotalDistanceKm
+        }
+    }
+
+    func fetchPublicUser(uid: String) async throws -> FirestorePublicUser? {
+        guard let publicUsersCollection else { return nil }
+        let snapshot = try await publicUsersCollection.document(uid).getDocument()
+        return try? snapshot.data(as: FirestorePublicUser.self)
     }
 
     func deleteCurrentAccount() async throws {
@@ -525,9 +914,13 @@ final class BackendService: ObservableObject {
             try await deleteUserOwnedDocuments(uid: uid)
             try await deleteFriendLinks(uid: uid)
             try await deleteStorageFolder(path: "feed_photos/\(uid)")
+            try await deleteStorageFolder(path: "profile_photos/\(uid)")
 
             if let usersCollection {
                 try await usersCollection.document(uid).delete()
+            }
+            if let publicUsersCollection {
+                try await publicUsersCollection.document(uid).delete()
             }
 
             try await authUser.delete()
@@ -541,30 +934,21 @@ final class BackendService: ObservableObject {
 
     // MARK: - Friends
 
-    func fetchFriends() async throws -> [FirestoreFriendLink] {
-        guard let uid = userId, let friendsCollection = friendsCollection(for: uid) else { return [] }
-        let snapshot = try await friendsCollection.getDocuments()
-        return snapshot.documents.compactMap { try? $0.data(as: FirestoreFriendLink.self) }
-    }
-
     func fetchFriendRequests() async throws -> [FirestoreFriendRequest] {
         guard let uid = userId, let friendRequestsCollection else { return [] }
 
-        async let incomingTask = friendRequestsCollection
-            .whereField("toUserId", isEqualTo: uid)
-            .getDocuments()
-        async let outgoingTask = friendRequestsCollection
-            .whereField("fromUserId", isEqualTo: uid)
-            .getDocuments()
+        async let incomingTask = queryFriendRequests(field: "receiverId", value: uid)
+        async let outgoingTask = queryFriendRequests(field: "senderId", value: uid)
+        async let legacyIncomingTask = queryFriendRequests(field: "toUserId", value: uid)
+        async let legacyOutgoingTask = queryFriendRequests(field: "fromUserId", value: uid)
 
-        let incomingSnapshot = try await incomingTask
-        let outgoingSnapshot = try await outgoingTask
+        let snapshots = try await [incomingTask, outgoingTask, legacyIncomingTask, legacyOutgoingTask]
         var requestsById: [String: FirestoreFriendRequest] = [:]
 
-        for snapshot in [incomingSnapshot, outgoingSnapshot] {
+        for snapshot in snapshots {
             for document in snapshot.documents {
-                if let request = try? document.data(as: FirestoreFriendRequest.self) {
-                    requestsById[request.id] = request
+                if let request = try? document.data(as: FirestoreFriendRequest.self).normalized(documentId: document.documentID) {
+                    requestsById[document.documentID] = request
                 }
             }
         }
@@ -572,59 +956,353 @@ final class BackendService: ObservableObject {
         return requestsById.values.sorted { $0.createdAt > $1.createdAt }
     }
 
-    func sendFriendRequest(toUserId: String, source: String = "manual") async throws {
-        guard let uid = userId, uid != toUserId, let friendRequestsCollection else {
-            throw makeError(AppLanguage.current.text("친구 요청은 로그인 후 사용할 수 있어요.", "Friend requests are available after sign-in."))
+    func fetchFriendships() async throws -> [FirestoreFriendship] {
+        guard let uid = userId, let friendshipsCollection else { return [] }
+
+        let snapshot = try await friendshipsCollection
+            .whereField("users", arrayContains: uid)
+            .getDocuments()
+
+        return snapshot.documents.compactMap {
+            try? $0.data(as: FirestoreFriendship.self).normalized(documentId: $0.documentID)
         }
+    }
 
-        let requestId = friendRequestKey(uid, toUserId)
-        let ref = friendRequestsCollection.document(requestId)
-        let snapshot = try await ref.getDocument()
+    func fetchFollowStates() async throws -> [FirestoreFollow] {
+        guard let uid = userId, let followsCollection else { return [] }
 
-        if let existing = try? snapshot.data(as: FirestoreFriendRequest.self) {
-            switch existing.status {
-            case "pending":
-                throw makeError(AppLanguage.current.text("이미 요청이 진행 중입니다.", "A friend request is already pending."))
-            case "accepted":
-                throw makeError(AppLanguage.current.text("이미 친구로 연결되어 있어요.", "You're already connected as friends."))
-            default:
-                throw makeError(AppLanguage.current.text("이 사용자와의 이전 요청 기록이 있어 지금은 새 요청을 보낼 수 없어요.", "There is a previous request record with this user, so a new request can't be sent right now."))
+        let snapshot = try await followsCollection
+            .whereField("followerId", isEqualTo: uid)
+            .getDocuments()
+
+        return snapshot.documents.compactMap {
+            try? $0.data(as: FirestoreFollow.self).normalized(documentId: $0.documentID)
+        }
+    }
+
+    func fetchBlocks() async throws -> [FirestoreBlock] {
+        guard let uid = userId else { return [] }
+
+        var blocksById: [String: FirestoreBlock] = [:]
+
+        if let blocksCollection {
+            async let blockedByMeTask = blocksCollection.whereField("blockerId", isEqualTo: uid).getDocuments()
+            async let blockedMeTask = blocksCollection.whereField("blockedId", isEqualTo: uid).getDocuments()
+
+            let snapshots = try await [blockedByMeTask, blockedMeTask]
+            for snapshot in snapshots {
+                for document in snapshot.documents {
+                    if let block = try? document.data(as: FirestoreBlock.self).normalized(documentId: document.documentID) {
+                        blocksById[document.documentID] = block
+                    }
+                }
             }
         }
 
-        let request = FirestoreFriendRequest(
-            id: requestId,
-            fromUserId: uid,
-            toUserId: toUserId,
-            status: "pending",
-            source: source,
-            createdAt: Date(),
-            respondedAt: nil
-        )
-        try ref.setData(from: request)
+        if let legacyCollection = blockedUsersCollection(for: uid) {
+            let snapshot = try await legacyCollection.getDocuments()
+            for document in snapshot.documents {
+                guard let legacy = try? document.data(as: FirestoreBlockedUser.self) else { continue }
+                let blockId = blockKey(blockerId: uid, blockedId: legacy.blockedUid)
+                blocksById[blockId] = FirestoreBlock(
+                    docId: blockId,
+                    id: blockId,
+                    blockerId: uid,
+                    blockedId: legacy.blockedUid,
+                    createdAt: legacy.createdAt
+                )
+            }
+        }
+
+        return Array(blocksById.values)
     }
 
-    func respondToFriendRequest(requestId: String, accept: Bool) async throws {
-        guard let uid = userId, let friendRequestsCollection else {
-            throw makeError(AppLanguage.current.text("친구 요청 응답은 로그인 후 사용할 수 있어요.", "Responding to a friend request is available after sign-in."))
+    func sendFriendRequest(toUserId: String, source: String = "manual") async throws {
+        guard let uid = userId else {
+            throw FriendshipServiceError.loginRequired
+        }
+        guard uid != toUserId else {
+            throw FriendshipServiceError.cannotFriendYourself
+        }
+        guard let friendRequestsCollection else {
+            throw FriendshipServiceError.unavailable
+        }
+
+        let requestId = friendRequestDocumentId(senderId: uid, receiverId: toUserId)
+        let friendshipId = friendshipKey(uid, toUserId)
+
+        do {
+            if try await isUserBlocked(blockerId: uid, blockedId: toUserId) {
+                throw FriendshipServiceError.blocked
+            }
+            if try await isUserBlocked(blockerId: toUserId, blockedId: uid) {
+                throw FriendshipServiceError.blockedByUser
+            }
+
+            guard try await publicUserExists(uid: toUserId) else {
+                throw FriendshipServiceError.userNotFound
+            }
+
+            if let friendshipsCollection {
+                let friendshipSnapshot = try await friendshipsCollection.document(friendshipId).getDocument()
+                if let friendship = try? friendshipSnapshot.data(as: FirestoreFriendship.self).normalized(documentId: friendshipSnapshot.documentID),
+                   friendship.isActive {
+                    throw FriendshipServiceError.alreadyFriends
+                }
+            }
+
+            let directRequestId = requestId
+            let reverseRequestId = friendRequestDocumentId(senderId: toUserId, receiverId: uid)
+            let legacyRequestId = friendshipKey(uid, toUserId)
+
+            for existingRequestId in Set([directRequestId, reverseRequestId, legacyRequestId]) {
+                let snapshot = try await friendRequestsCollection.document(existingRequestId).getDocument()
+                guard let existing = try? snapshot.data(as: FirestoreFriendRequest.self).normalized(documentId: snapshot.documentID) else {
+                    continue
+                }
+
+                switch existing.status {
+                case "pending":
+                    if existing.resolvedSenderId == uid {
+                        throw FriendshipServiceError.outgoingPending
+                    }
+                    throw FriendshipServiceError.incomingPending
+                case "accepted":
+                    throw FriendshipServiceError.alreadyFriends
+                default:
+                    continue
+                }
+            }
+
+            let now = Date()
+            let requestData: [String: Any] = [
+                "id": requestId,
+                "requestId": requestId,
+                "fromUserId": uid,
+                "toUserId": toUserId,
+                "senderId": uid,
+                "receiverId": toUserId,
+                "status": "pending",
+                "source": source,
+                "createdAt": Timestamp(date: now),
+                "updatedAt": Timestamp(date: now),
+                "respondedAt": NSNull(),
+            ]
+
+            if let db, let followsCollection {
+                let requestRef = friendRequestsCollection.document(requestId)
+                let followId = followKey(followerId: uid, followingId: toUserId)
+                let followRef = followsCollection.document(followId)
+                let batch = db.batch()
+
+                batch.setData(requestData, forDocument: requestRef)
+                batch.setData([
+                    "id": followId,
+                    "followerId": uid,
+                    "followingId": toUserId,
+                    "isActive": true,
+                    "createdAt": Timestamp(date: now),
+                    "updatedAt": Timestamp(date: now),
+                ], forDocument: followRef, merge: true)
+
+                try await batch.commit()
+            } else {
+                try await friendRequestsCollection.document(requestId).setData(requestData)
+            }
+        } catch let error as FriendshipServiceError {
+            throw error
+        } catch {
+            logFriendshipFailure(
+                operation: "sendFriendRequest",
+                uid: uid,
+                targetUid: toUserId,
+                path: "friendRequests/\(requestId)",
+                error: error
+            )
+            throw error
+        }
+    }
+
+    func cancelFriendRequest(requestId: String) async throws {
+        guard let uid = userId else {
+            throw FriendshipServiceError.loginRequired
+        }
+        guard let friendRequestsCollection else {
+            throw FriendshipServiceError.unavailable
         }
 
         let ref = friendRequestsCollection.document(requestId)
-        let snapshot = try await ref.getDocument()
-        guard let request = try? snapshot.data(as: FirestoreFriendRequest.self) else {
-            throw makeError(AppLanguage.current.text("친구 요청을 찾지 못했어요.", "Couldn't find the friend request."))
+
+        do {
+            let snapshot = try await ref.getDocument()
+            guard let request = try? snapshot.data(as: FirestoreFriendRequest.self).normalized(documentId: snapshot.documentID) else {
+                throw FriendshipServiceError.requestNotFound
+            }
+            guard request.resolvedSenderId == uid else {
+                throw FriendshipServiceError.noPermission
+            }
+            guard request.status == "pending" else {
+                throw FriendshipServiceError.alreadyHandled
+            }
+
+            try await ref.updateData([
+                "status": "canceled",
+                "updatedAt": Timestamp(date: Date()),
+            ])
+        } catch let error as FriendshipServiceError {
+            throw error
+        } catch {
+            logFriendshipFailure(
+                operation: "cancelFriendRequest",
+                uid: uid,
+                path: "friendRequests/\(requestId)",
+                error: error
+            )
+            throw error
         }
-        guard request.toUserId == uid else {
-            throw makeError(AppLanguage.current.text("이 요청에 응답할 권한이 없어요.", "You don't have permission to respond to this request."))
+    }
+
+    func respondToFriendRequest(requestId: String, accept: Bool) async throws {
+        guard let uid = userId else {
+            throw FriendshipServiceError.loginRequired
         }
-        guard request.status == "pending" else {
-            throw makeError(AppLanguage.current.text("이미 처리된 친구 요청입니다.", "This friend request has already been handled."))
+        guard let friendRequestsCollection else {
+            throw FriendshipServiceError.unavailable
         }
 
-        try await ref.updateData([
-            "status": accept ? "accepted" : "rejected",
-            "respondedAt": Timestamp(date: Date()),
-        ])
+        let ref = friendRequestsCollection.document(requestId)
+
+        do {
+            let snapshot = try await ref.getDocument()
+            guard let request = try? snapshot.data(as: FirestoreFriendRequest.self).normalized(documentId: snapshot.documentID) else {
+                throw FriendshipServiceError.requestNotFound
+            }
+            guard request.resolvedReceiverId == uid else {
+                throw FriendshipServiceError.noPermission
+            }
+            guard request.status == "pending" else {
+                throw FriendshipServiceError.alreadyHandled
+            }
+
+            let now = Date()
+                if accept,
+                    let db,
+                    let friendshipsCollection,
+                    let followsCollection {
+                let friendshipId = friendshipKey(request.resolvedSenderId, request.resolvedReceiverId)
+                let friendshipRef = friendshipsCollection.document(friendshipId)
+                let receiverFollowRef = followsCollection.document(followKey(followerId: request.resolvedReceiverId, followingId: request.resolvedSenderId))
+                let batch = db.batch()
+
+                batch.updateData([
+                    "status": "accepted",
+                    "updatedAt": Timestamp(date: now),
+                    "respondedAt": Timestamp(date: now),
+                ], forDocument: ref)
+                batch.setData([
+                    "id": friendshipId,
+                    "friendshipId": friendshipId,
+                    "users": [request.resolvedSenderId, request.resolvedReceiverId].sorted(),
+                    "status": "active",
+                    "createdAt": Timestamp(date: now),
+                    "updatedAt": Timestamp(date: now),
+                    "removedBy": FieldValue.delete(),
+                    "removedAt": FieldValue.delete(),
+                ], forDocument: friendshipRef, merge: true)
+                batch.setData([
+                    "id": receiverFollowRef.documentID,
+                    "followerId": request.resolvedReceiverId,
+                    "followingId": request.resolvedSenderId,
+                    "isActive": true,
+                    "createdAt": Timestamp(date: now),
+                    "updatedAt": Timestamp(date: now),
+                ], forDocument: receiverFollowRef, merge: true)
+
+                try await batch.commit()
+            } else {
+                try await ref.updateData([
+                    "status": accept ? "accepted" : "rejected",
+                    "updatedAt": Timestamp(date: now),
+                    "respondedAt": Timestamp(date: now),
+                ])
+            }
+        } catch let error as FriendshipServiceError {
+            throw error
+        } catch {
+            logFriendshipFailure(
+                operation: accept ? "acceptFriendRequest" : "rejectFriendRequest",
+                uid: uid,
+                path: "friendRequests/\(requestId)",
+                error: error
+            )
+            throw error
+        }
+    }
+
+    func setFollowState(targetUserId: String, isActive: Bool) async throws {
+        guard let uid = userId else {
+            throw FriendshipServiceError.loginRequired
+        }
+        guard let followsCollection else {
+            throw FriendshipServiceError.unavailable
+        }
+
+        let now = Date()
+        let followId = followKey(followerId: uid, followingId: targetUserId)
+        try await followsCollection.document(followId).setData([
+            "id": followId,
+            "followerId": uid,
+            "followingId": targetUserId,
+            "isActive": isActive,
+            "createdAt": Timestamp(date: now),
+            "updatedAt": Timestamp(date: now),
+        ], merge: true)
+    }
+
+    func removeFriend(targetUserId: String) async throws {
+        guard let uid = userId else {
+            throw FriendshipServiceError.loginRequired
+        }
+        guard let db, let friendshipsCollection else {
+            throw FriendshipServiceError.unavailable
+        }
+
+        let now = Date()
+        let friendshipId = friendshipKey(uid, targetUserId)
+        let friendshipRef = friendshipsCollection.document(friendshipId)
+        let friendshipSnapshot = try await friendshipRef.getDocument()
+        guard let friendship = try? friendshipSnapshot.data(as: FirestoreFriendship.self).normalized(documentId: friendshipSnapshot.documentID),
+              friendship.isActive else {
+            throw FriendshipServiceError.friendshipNotFound
+        }
+        guard friendship.users.contains(uid) else {
+            throw FriendshipServiceError.noPermission
+        }
+
+        let batch = db.batch()
+        batch.setData([
+            "id": friendshipId,
+            "friendshipId": friendshipId,
+            "users": friendship.users,
+            "status": "removed",
+            "updatedAt": Timestamp(date: now),
+            "removedBy": uid,
+            "removedAt": Timestamp(date: now),
+        ], forDocument: friendshipRef, merge: true)
+
+        if let followsCollection {
+            let followRef = followsCollection.document(followKey(followerId: uid, followingId: targetUserId))
+            batch.setData([
+                "id": followRef.documentID,
+                "followerId": uid,
+                "followingId": targetUserId,
+                "isActive": false,
+                "createdAt": Timestamp(date: now),
+                "updatedAt": Timestamp(date: now),
+            ], forDocument: followRef, merge: true)
+        }
+
+        try await batch.commit()
     }
 
     // MARK: - Run Records
@@ -646,7 +1324,9 @@ final class BackendService: ObservableObject {
 
         try await usersCollection.document(uid).updateData([
             "totalDistanceKm": FieldValue.increment(record.totalDistanceMeters / 1000.0),
+            "totalDistance": FieldValue.increment(record.totalDistanceMeters / 1000.0),
             "totalRuns": FieldValue.increment(Int64(1)),
+            "runCount": FieldValue.increment(Int64(1)),
             "totalTimeSeconds": FieldValue.increment(record.elapsedSeconds),
             "updatedAt": FieldValue.serverTimestamp(),
         ])
@@ -824,7 +1504,9 @@ final class BackendService: ObservableObject {
             .addSnapshotListener { snapshot, error in
                 guard let docs = snapshot?.documents else { return }
                 let posts = docs.compactMap { try? $0.data(as: FirestoreMatePost.self) }
-                onChange(posts)
+                Task { @MainActor in
+                    onChange(posts)
+                }
             }
         listeners.append(listener)
     }
@@ -837,7 +1519,9 @@ final class BackendService: ObservableObject {
             .addSnapshotListener { snapshot, error in
                 guard let docs = snapshot?.documents else { return }
                 let posts = docs.compactMap { try? $0.data(as: FirestoreFeedPost.self) }
-                onChange(posts)
+                Task { @MainActor in
+                    onChange(posts)
+                }
             }
         listeners.append(listener)
     }
@@ -922,23 +1606,55 @@ final class BackendService: ObservableObject {
         }
 
         if let friendRequestsCollection {
-            let incomingSnapshot = try await friendRequestsCollection.whereField("toUserId", isEqualTo: uid).getDocuments()
-            let outgoingSnapshot = try await friendRequestsCollection.whereField("fromUserId", isEqualTo: uid).getDocuments()
+            let incomingSnapshot = try await friendRequestsCollection.whereField("receiverId", isEqualTo: uid).getDocuments()
+            let outgoingSnapshot = try await friendRequestsCollection.whereField("senderId", isEqualTo: uid).getDocuments()
+            let legacyIncomingSnapshot = try await friendRequestsCollection.whereField("toUserId", isEqualTo: uid).getDocuments()
+            let legacyOutgoingSnapshot = try await friendRequestsCollection.whereField("fromUserId", isEqualTo: uid).getDocuments()
             references.append(contentsOf: incomingSnapshot.documents.map(\.reference))
             references.append(contentsOf: outgoingSnapshot.documents.map(\.reference))
+            references.append(contentsOf: legacyIncomingSnapshot.documents.map(\.reference))
+            references.append(contentsOf: legacyOutgoingSnapshot.documents.map(\.reference))
+        }
+
+        if let followsCollection {
+            let followerSnapshot = try await followsCollection.whereField("followerId", isEqualTo: uid).getDocuments()
+            let followingSnapshot = try await followsCollection.whereField("followingId", isEqualTo: uid).getDocuments()
+            references.append(contentsOf: followerSnapshot.documents.map(\.reference))
+            references.append(contentsOf: followingSnapshot.documents.map(\.reference))
+        }
+
+        if let blocksCollection {
+            let blockerSnapshot = try await blocksCollection.whereField("blockerId", isEqualTo: uid).getDocuments()
+            let blockedSnapshot = try await blocksCollection.whereField("blockedId", isEqualTo: uid).getDocuments()
+            references.append(contentsOf: blockerSnapshot.documents.map(\.reference))
+            references.append(contentsOf: blockedSnapshot.documents.map(\.reference))
         }
 
         try await deleteDocuments(references)
     }
 
     private func deleteFriendLinks(uid: String) async throws {
-        guard let usersCollection else { return }
-        let friendsSnapshot = try await usersCollection.document(uid).collection("friends").getDocuments()
+        var references: [DocumentReference] = []
 
-        var references = friendsSnapshot.documents.map(\.reference)
-        references.append(contentsOf: friendsSnapshot.documents.map {
-            usersCollection.document($0.documentID).collection("friends").document(uid)
-        })
+        if let usersCollection {
+            let friendsSnapshot = try await usersCollection.document(uid).collection("friends").getDocuments()
+            references.append(contentsOf: friendsSnapshot.documents.map(\.reference))
+            references.append(contentsOf: friendsSnapshot.documents.map {
+                usersCollection.document($0.documentID).collection("friends").document(uid)
+            })
+        }
+
+        if let friendshipsCollection {
+            let friendshipsSnapshot = try await friendshipsCollection.whereField("users", arrayContains: uid).getDocuments()
+            references.append(contentsOf: friendshipsSnapshot.documents.map(\.reference))
+        }
+
+        if let followsCollection {
+            let followerSnapshot = try await followsCollection.whereField("followerId", isEqualTo: uid).getDocuments()
+            let followingSnapshot = try await followsCollection.whereField("followingId", isEqualTo: uid).getDocuments()
+            references.append(contentsOf: followerSnapshot.documents.map(\.reference))
+            references.append(contentsOf: followingSnapshot.documents.map(\.reference))
+        }
 
         try await deleteDocuments(references)
     }
@@ -1049,35 +1765,121 @@ final class BackendService: ObservableObject {
         try reportsCollection.document(report.id).setData(from: report)
     }
 
-    /// 사용자를 차단합니다. 차단하면 해당 유저의 게시물이 피드에 표시되지 않습니다.
+    /// 사용자를 차단합니다. 차단하면 친구/팔로우/대기 요청이 함께 정리됩니다.
     func blockUser(uid blockedUid: String) async throws {
-        guard let uid = userId, uid != blockedUid,
-              let collection = blockedUsersCollection(for: uid) else {
-            throw makeError("차단 기능은 로그인 후 사용할 수 있습니다.")
+        guard let uid = userId, uid != blockedUid else {
+            throw FriendshipServiceError.loginRequired
         }
-        let entry = FirestoreBlockedUser(
-            id: blockedUid,
-            blockedUid: blockedUid,
-            createdAt: Date()
-        )
-        try collection.document(blockedUid).setData(from: entry, merge: true)
+        guard let db, let blocksCollection else {
+            throw FriendshipServiceError.unavailable
+        }
+
+        let now = Date()
+        let blockId = blockKey(blockerId: uid, blockedId: blockedUid)
+        let batch = db.batch()
+
+        batch.setData([
+            "id": blockId,
+            "blockerId": uid,
+            "blockedId": blockedUid,
+            "createdAt": Timestamp(date: now),
+        ], forDocument: blocksCollection.document(blockId), merge: true)
+
+        if let legacyCollection = blockedUsersCollection(for: uid) {
+            let entry = FirestoreBlockedUser(
+                id: blockedUid,
+                blockedUid: blockedUid,
+                createdAt: now
+            )
+            try batch.setData(from: entry, forDocument: legacyCollection.document(blockedUid), merge: true)
+        }
+
+        if let friendshipsCollection {
+            let friendshipId = friendshipKey(uid, blockedUid)
+            batch.setData([
+                "id": friendshipId,
+                "friendshipId": friendshipId,
+                "users": [uid, blockedUid].sorted(),
+                "status": "removed",
+                "updatedAt": Timestamp(date: now),
+                "removedBy": uid,
+                "removedAt": Timestamp(date: now),
+            ], forDocument: friendshipsCollection.document(friendshipId), merge: true)
+        }
+
+        if let followsCollection {
+            let followRef = followsCollection.document(followKey(followerId: uid, followingId: blockedUid))
+            batch.setData([
+                "id": followRef.documentID,
+                "followerId": uid,
+                "followingId": blockedUid,
+                "isActive": false,
+                "createdAt": Timestamp(date: now),
+                "updatedAt": Timestamp(date: now),
+            ], forDocument: followRef, merge: true)
+        }
+
+        if let friendRequestsCollection {
+            for requestId in [friendRequestDocumentId(senderId: uid, receiverId: blockedUid), friendRequestDocumentId(senderId: blockedUid, receiverId: uid), friendshipKey(uid, blockedUid)] {
+                let requestRef = friendRequestsCollection.document(requestId)
+                let snapshot = try await requestRef.getDocument()
+                guard let request = try? snapshot.data(as: FirestoreFriendRequest.self).normalized(documentId: snapshot.documentID),
+                      request.status == "pending" else {
+                    continue
+                }
+
+                batch.updateData([
+                    "status": request.resolvedSenderId == uid ? "canceled" : "rejected",
+                    "updatedAt": Timestamp(date: now),
+                    "respondedAt": Timestamp(date: now),
+                ], forDocument: requestRef)
+            }
+        }
+
+        try await batch.commit()
     }
 
     /// 차단을 해제합니다.
     func unblockUser(uid blockedUid: String) async throws {
-        guard let uid = userId,
-              let collection = blockedUsersCollection(for: uid) else { return }
-        try await collection.document(blockedUid).delete()
+        guard let uid = userId else {
+            throw FriendshipServiceError.loginRequired
+        }
+        guard let db else {
+            throw FriendshipServiceError.unavailable
+        }
+
+        let batch = db.batch()
+        var hasPendingDelete = false
+
+        if let blocksCollection {
+            let snapshot = try await blocksCollection
+                .whereField("blockerId", isEqualTo: uid)
+                .whereField("blockedId", isEqualTo: blockedUid)
+                .getDocuments()
+
+            for document in snapshot.documents {
+                batch.deleteDocument(document.reference)
+                hasPendingDelete = true
+            }
+        }
+
+        if let collection = blockedUsersCollection(for: uid) {
+            batch.deleteDocument(collection.document(blockedUid))
+            hasPendingDelete = true
+        }
+
+        if hasPendingDelete {
+            try await batch.commit()
+        }
     }
 
     /// 내가 차단한 사용자 uid 목록을 반환합니다.
     func fetchBlockedUsers() async throws -> [String] {
-        guard let uid = userId,
-              let collection = blockedUsersCollection(for: uid) else { return [] }
-        let snapshot = try await collection.getDocuments()
-        return snapshot.documents.compactMap {
-            (try? $0.data(as: FirestoreBlockedUser.self))?.blockedUid
-        }
+        let blocks = try await fetchBlocks()
+        guard let uid = userId else { return [] }
+        return blocks
+            .filter { $0.blockerId == uid }
+            .map(\.blockedId)
     }
 
     private func makeError(_ message: String) -> NSError {
@@ -1088,14 +1890,64 @@ final class BackendService: ObservableObject {
         )
     }
 
-    private func friendRequestKey(_ firstUserId: String, _ secondUserId: String) -> String {
+    private func publicUserExists(uid: String) async throws -> Bool {
+        guard let publicUsersCollection else { return false }
+        return try await publicUsersCollection.document(uid).getDocument().exists
+    }
+
+    private func isUserBlocked(blockerId: String, blockedId: String) async throws -> Bool {
+        if let blocksCollection {
+            return try await blocksCollection.document(blockKey(blockerId: blockerId, blockedId: blockedId)).getDocument().exists
+        }
+        guard blockerId == userId,
+              let blockedUsersCollection = blockedUsersCollection(for: blockerId) else { return false }
+        return try await blockedUsersCollection.document(blockedId).getDocument().exists
+    }
+
+    private func queryFriendRequests(field: String, value: String) async throws -> QuerySnapshot {
+        guard let friendRequestsCollection else {
+            throw FriendshipServiceError.unavailable
+        }
+        return try await friendRequestsCollection
+            .whereField(field, isEqualTo: value)
+            .order(by: "createdAt", descending: true)
+            .getDocuments()
+    }
+
+    private func logFriendshipFailure(
+        operation: String,
+        uid: String?,
+        targetUid: String? = nil,
+        path: String,
+        error: Error
+    ) {
+        let nsError = error as NSError
+        print(
+            "[Friendship] operation=\(operation) uid=\(uid ?? "-") targetUid=\(targetUid ?? "-") path=\(path) domain=\(nsError.domain) code=\(nsError.code) message=\(nsError.localizedDescription)"
+        )
+    }
+
+    private func friendRequestDocumentId(senderId: String, receiverId: String) -> String {
+        "\(senderId)_\(receiverId)"
+    }
+
+    private func followKey(followerId: String, followingId: String) -> String {
+        "\(followerId)_\(followingId)"
+    }
+
+    private func blockKey(blockerId: String, blockedId: String) -> String {
+        "\(blockerId)_\(blockedId)"
+    }
+
+    private func friendshipKey(_ firstUserId: String, _ secondUserId: String) -> String {
         [firstUserId, secondUserId].sorted().joined(separator: "_")
     }
 }
 
 extension FirestoreRunRecord {
     static func from(record: RunRecord, userId: String) -> FirestoreRunRecord {
-        FirestoreRunRecord(
+        let quality = record.resolvedDataQuality
+        return FirestoreRunRecord(
             docId: record.id.uuidString,
             id: record.id.uuidString,
             userId: userId,
@@ -1110,6 +1962,15 @@ extension FirestoreRunRecord {
             goalTimeMinutes: record.runGoal?.targetTimeMinutes,
             averageCadenceSpm: record.averageCadenceSpm,
             averageHeartRateBpm: record.averageHeartRateBpm,
+            caloriesEstimatedKcal: record.estimatedCaloriesKcal,
+            heartRateSource: quality.heartRateSource.rawValue,
+            cadenceSource: quality.cadenceSource.rawValue,
+            elevationSource: quality.elevationSource.rawValue,
+            gpsQuality: quality.gpsQuality.rawValue,
+            hasReliableElevation: quality.hasReliableElevation,
+            hasReliableSpeed: quality.hasReliableSpeed,
+            hasReliableHeartRate: quality.hasReliableHeartRate,
+            hasReliableCadence: quality.hasReliableCadence,
             routeEncoded: encodeRoute(record.routePoints),
             createdAt: record.startDate
         )
@@ -1117,6 +1978,25 @@ extension FirestoreRunRecord {
 
     func toRunRecord() -> RunRecord? {
         guard let uuid = UUID(uuidString: id) else { return nil }
+
+        let hasStoredQuality = heartRateSource != nil
+            || cadenceSource != nil
+            || elevationSource != nil
+            || gpsQuality != nil
+            || hasReliableElevation != nil
+            || hasReliableSpeed != nil
+            || hasReliableHeartRate != nil
+            || hasReliableCadence != nil
+        let quality = RunDataQuality(
+            heartRateSource: RunSensorSource(rawValue: heartRateSource ?? "") ?? .none,
+            cadenceSource: RunSensorSource(rawValue: cadenceSource ?? "") ?? .none,
+            elevationSource: RunSensorSource(rawValue: elevationSource ?? "") ?? .none,
+            gpsQuality: RunGPSQuality(rawValue: gpsQuality ?? "") ?? .poor,
+            hasReliableElevation: hasReliableElevation ?? false,
+            hasReliableSpeed: hasReliableSpeed ?? false,
+            hasReliableHeartRate: hasReliableHeartRate ?? false,
+            hasReliableCadence: hasReliableCadence ?? false
+        )
 
         return RunRecord(
             id: uuid,
@@ -1137,7 +2017,9 @@ extension FirestoreRunRecord {
             },
             intervalProgram: nil,
             averageCadenceSpm: averageCadenceSpm,
-            averageHeartRateBpm: averageHeartRateBpm
+            averageHeartRateBpm: averageHeartRateBpm,
+            caloriesEstimatedKcal: caloriesEstimatedKcal,
+            dataQuality: hasStoredQuality ? quality : nil
         )
     }
 

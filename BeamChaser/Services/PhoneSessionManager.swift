@@ -102,7 +102,7 @@ final class PhoneSessionManager: NSObject, ObservableObject {
                 let cadence = rs.elapsedSeconds > 0
                     ? Int((Double(ls.sessionStepCount) / rs.elapsedSeconds * 60.0).rounded())
                     : nil
-                rs.finishRun(
+                _ = try? rs.finishRun(
                     routePoints: ls.routePoints,
                     totalDistance: ls.totalDistanceMeters,
                     averageCadenceSpm: cadence

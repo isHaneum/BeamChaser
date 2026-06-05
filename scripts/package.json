@@ -1,0 +1,15 @@
+{
+  "name": "runbeam-admin-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "backfill:community": "node backfill-community-search.mjs",
+    "deploy:firestore": "node deploy-firestore.mjs",
+    "deploy:firestore:cli": "npx firebase-tools --config ../firebase.json --project runbeam-f1f5b deploy --only firestore:rules,firestore:indexes"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0",
+    "firebase-tools": "^15.17.0",
+    "google-auth-library": "^9.15.1"
+  }
+}

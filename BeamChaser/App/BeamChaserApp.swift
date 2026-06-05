@@ -76,6 +76,7 @@ struct BeamChaserApp: App {
                 .environmentObject(voiceGuide)
                 .onAppear {
                     // 서비스 간 의존성 주입
+                    authService.bleService = bleService
                     runSession.bleService = bleService
                     runSession.locationService = locationService
                     runSession.healthKit.refreshAuthorizationStatus()

@@ -3,6 +3,7 @@ import MapKit
 import PhotosUI
 import UIKit
 import AuthenticationServices
+import CryptoKit
 
 // MARK: - Community Data Models
 
@@ -84,10 +85,17 @@ struct RunMatePost: Identifiable {
 
 struct CommunityFriend: Identifiable {
     let id: String
+    let username: String
+    let searchId: String
     let name: String
+    let photoURL: String?
     let level: RunnerLevel
     let totalDistanceKm: Double
     let totalRuns: Int
+
+    var handle: String {
+        "@\(username)"
+    }
 
     var recordSummary: String {
         AppLanguage.current.text(
@@ -153,22 +161,26 @@ final class CommunityViewModel: ObservableObject {
     @Published var incomingFriendRequests: [CommunityFriendRequest] = []
     @Published var outgoingFriendRequests: [CommunityFriendRequest] = []
     @Published var contactMatches: [ContactMatchedFriend] = []
+    @Published var searchedFriends: [CommunityFriend] = []
     @Published var feedScope: CommunityFeedScope = .all {
         didSet { applyFeedFilter() }
     }
     @Published var isLoading = false
     @Published var isSubmitting = false
+    @Published var isSearchingUsers = false
     @Published var errorMessage: String?
     @Published var blockedUserIds: Set<String> = []
+    @Published var hiddenFeedUserIds: Set<String> = []
 
     private var backendService: BackendService?
     private var allFeedPosts: [RunnerPost] = []
     private var currentUserId: String?
     private var friendIds: Set<String> = []
     private var pendingRequestUserIds: Set<String> = []
-    private var userDirectory: [String: FirestoreUser] = [:]
-    private var rankedUsers: [FirestoreUser] = []
+    private var userDirectory: [String: FirestorePublicUser] = [:]
+    private var rankedUsers: [FirestorePublicUser] = []
     private var contactEmailDirectory: [String: String] = [:]
+    private var lastFriendSearchQuery = ""
 
     func configure(backendService: BackendService) {
         guard self.backendService !== backendService else { return }
@@ -196,8 +208,8 @@ final class CommunityViewModel: ObservableObject {
             || localized.contains("missing or insufficient permissions")
             || localized.contains("insufficient permissions") {
             return AppLanguage.current.text(
-                "친구 정보를 저장할 권한이 없어요. Firestore rules 배포 상태를 확인해주세요.",
-                "The app doesn't have permission to save friend data. Check whether Firestore rules were deployed."
+                "친구 요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.",
+                "Couldn't process the friend request. Please try again shortly."
             )
         }
 
@@ -223,10 +235,13 @@ final class CommunityViewModel: ObservableObject {
             incomingFriendRequests = []
             outgoingFriendRequests = []
             contactMatches = []
+            searchedFriends = []
             friendIds = []
             pendingRequestUserIds = []
             userDirectory = [:]
             rankedUsers = []
+            lastFriendSearchQuery = ""
+            hiddenFeedUserIds = []
             errorMessage = nil
             return
         }
@@ -237,36 +252,46 @@ final class CommunityViewModel: ObservableObject {
         // 네 작업을 동시에 시작하되, 유저 목록·친구 목록은 soft-fail 처리
         // (Firestore 보안 규칙에서 컬렉션 전체 읽기가 막혀도 포스트는 보여줌)
         async let usersTask   = backendService.fetchUsers(limit: 100)
-        async let friendsTask = backendService.fetchFriends()
-        async let blockedTask = backendService.fetchBlockedUsers()
+        async let blocksTask = backendService.fetchBlocks()
         async let requestsTask = backendService.fetchFriendRequests()
+        async let friendshipsTask = backendService.fetchFriendships()
+        async let followsTask = backendService.fetchFollowStates()
         async let mateTask    = backendService.fetchMatePosts()
         async let feedTask    = backendService.fetchFeedPosts()
 
-        let users       = (try? await usersTask)   ?? []
-        let friendLinks = (try? await friendsTask) ?? []
-        let blocked     = (try? await blockedTask) ?? []
-        let requests    = (try? await requestsTask) ?? []
-        blockedUserIds  = Set(blocked)
+        let users    = (try? await usersTask) ?? []
+        let blocks   = (try? await blocksTask) ?? []
+        let requests = (try? await requestsTask) ?? []
+        let friendships = (try? await friendshipsTask) ?? []
+        let follows = (try? await followsTask) ?? []
 
         do {
             let fetchedMatePosts = try await mateTask
             let fetchedFeedPosts = try await feedTask
 
             currentUserId = backendService.userId
+            let currentUserId = backendService.userId
             userDirectory = Dictionary(uniqueKeysWithValues: users.map { ($0.uid, $0) })
             rankedUsers = users.sorted { lhs, rhs in
-                if lhs.totalDistanceKm == rhs.totalDistanceKm {
+                if lhs.resolvedTotalDistanceKm == rhs.resolvedTotalDistanceKm {
                     return lhs.updatedAt > rhs.updatedAt
                 }
-                return lhs.totalDistanceKm > rhs.totalDistanceKm
+                return lhs.resolvedTotalDistanceKm > rhs.resolvedTotalDistanceKm
             }
 
-            rebuildRelationships(friendLinks: friendLinks, requests: requests)
+            blockedUserIds = Set(blocks.compactMap { block in
+                guard let currentUserId else { return nil }
+                if block.blockerId == currentUserId { return block.blockedId }
+                if block.blockedId == currentUserId { return block.blockerId }
+                return nil
+            })
+            hiddenFeedUserIds = Set(follows.filter { !$0.isActive }.map(\.followingId))
+
+            rebuildRelationships(requests: requests, friendships: friendships)
             refreshSocialDiscovery()
 
             friends = rankedUsers
-                .filter { friendIds.contains($0.uid) }
+                .filter { friendIds.contains($0.uid) && !blockedUserIds.contains($0.uid) }
                 .map { makeCommunityFriend(from: $0) }
 
             matePosts = fetchedMatePosts
@@ -317,11 +342,93 @@ final class CommunityViewModel: ObservableObject {
 
         do {
             try await backendService.sendFriendRequest(toUserId: friendId, source: source)
+            pendingRequestUserIds.insert(friendId)
+            searchedFriends.removeAll { $0.id == friendId }
+            suggestedFriends.removeAll { $0.id == friendId }
+            contactMatches.removeAll { $0.friend.id == friendId }
             errorMessage = nil
             await reload()
         } catch {
             errorMessage = friendActionErrorMessage(for: error)
         }
+    }
+
+    func searchFriends(query: String) async {
+        guard let backendService else { return }
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        lastFriendSearchQuery = trimmedQuery
+        let normalizedQuery = FirestorePublicUser.normalizedSearchText(
+            trimmedQuery.replacingOccurrences(of: "@", with: "")
+        )
+
+        guard backendService.isSignedIn else {
+            searchedFriends = []
+            errorMessage = AppLanguage.current.text(
+                "친구 검색은 로그인 후 사용할 수 있어요.",
+                "Friend search is available after sign-in."
+            )
+            return
+        }
+
+        guard !trimmedQuery.isEmpty else {
+            searchedFriends = []
+            return
+        }
+
+        var resultsById: [String: CommunityFriend] = [:]
+        for user in rankedUsers where matchesSearchQuery(user, normalizedQuery: normalizedQuery) {
+            guard user.uid != currentUserId,
+                  !friendIds.contains(user.uid),
+                  !pendingRequestUserIds.contains(user.uid),
+                  !blockedUserIds.contains(user.uid) else {
+                continue
+            }
+            let friend = makeCommunityFriend(from: user)
+            resultsById[friend.id] = friend
+        }
+
+        isSearchingUsers = true
+        defer { isSearchingUsers = false }
+
+        do {
+            let users = try await backendService.searchUsers(query: trimmedQuery)
+            for user in users {
+                guard user.uid != currentUserId,
+                      !friendIds.contains(user.uid),
+                      !pendingRequestUserIds.contains(user.uid),
+                      !blockedUserIds.contains(user.uid) else {
+                    continue
+                }
+                let friend = makeCommunityFriend(from: user)
+                resultsById[friend.id] = friend
+            }
+            searchedFriends = resultsById.values.sorted { lhs, rhs in
+                if lhs.totalDistanceKm == rhs.totalDistanceKm {
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+                return lhs.totalDistanceKm > rhs.totalDistanceKm
+            }
+            errorMessage = nil
+        } catch {
+            searchedFriends = resultsById.values.sorted { lhs, rhs in
+                if lhs.totalDistanceKm == rhs.totalDistanceKm {
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+                return lhs.totalDistanceKm > rhs.totalDistanceKm
+            }
+            errorMessage = searchedFriends.isEmpty
+                ? presentableMessage(
+                    for: error,
+                    fallback: AppLanguage.current.text("친구 검색에 실패했어요.", "Couldn't search for friends.")
+                )
+                : nil
+        }
+    }
+
+    func clearFriendSearch() {
+        lastFriendSearchQuery = ""
+        searchedFriends = []
     }
 
     func respondToFriendRequest(requestId: String, accept: Bool) async {
@@ -361,7 +468,7 @@ final class CommunityViewModel: ObservableObject {
             return
         }
 
-        let author = userDirectory[userId] ?? backendService.currentUser
+        let author = userDirectory[userId] ?? backendService.currentUser?.publicProfile
         let comment = FirestoreComment(
             id: UUID().uuidString,
             authorId: userId,
@@ -415,9 +522,15 @@ final class CommunityViewModel: ObservableObject {
         do {
             try await backendService.blockUser(uid: userId)
             blockedUserIds.insert(userId)
+            hiddenFeedUserIds.insert(userId)
             allFeedPosts = allFeedPosts.filter { $0.authorId != userId }
             applyFeedFilter()
             matePosts = matePosts.filter { $0.authorId != userId }
+            friends.removeAll { $0.id == userId }
+            suggestedFriends.removeAll { $0.id == userId }
+            contactMatches.removeAll { $0.friend.id == userId }
+            incomingFriendRequests.removeAll { $0.friend.id == userId }
+            outgoingFriendRequests.removeAll { $0.friend.id == userId }
         } catch {
             errorMessage = AppLanguage.current.text("차단할 수 없었어요.", "Couldn't block this user.")
         }
@@ -441,7 +554,7 @@ final class CommunityViewModel: ObservableObject {
             return false
         }
 
-        let author = userDirectory[userId] ?? backendService.currentUser
+        let author = userDirectory[userId] ?? backendService.currentUser?.publicProfile
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = AppLanguage.current.isEnglish ? "MMM d (E)" : "M/d (E)"
         dateFormatter.locale = AppLanguage.current.isEnglish ? Locale(identifier: "en") : Locale(identifier: "ko_KR")
@@ -491,7 +604,7 @@ final class CommunityViewModel: ObservableObject {
             return false
         }
 
-        let author = userDirectory[userId] ?? backendService.currentUser
+        let author = userDirectory[userId] ?? backendService.currentUser?.publicProfile
 
         isSubmitting = true
         defer { isSubmitting = false }
@@ -557,30 +670,37 @@ final class CommunityViewModel: ObservableObject {
     private func applyFeedFilter() {
         switch feedScope {
         case .all:
-            feedPosts = allFeedPosts
+            feedPosts = allFeedPosts.filter { !hiddenFeedUserIds.contains($0.authorId) }
         case .friends:
-            feedPosts = allFeedPosts.filter { friendIds.contains($0.authorId) }
+            feedPosts = allFeedPosts.filter {
+                friendIds.contains($0.authorId) && !hiddenFeedUserIds.contains($0.authorId)
+            }
         }
     }
 
-    private func rebuildRelationships(friendLinks: [FirestoreFriendLink], requests: [FirestoreFriendRequest]) {
-        let legacyFriendIds = Set(friendLinks.map(\.friendId))
-        var acceptedFriendIds = legacyFriendIds
+    private func rebuildRelationships(requests: [FirestoreFriendRequest], friendships: [FirestoreFriendship]) {
+        var acceptedFriendIds = Set<String>()
         var pendingIds = Set<String>()
         var nextIncoming: [CommunityFriendRequest] = []
         var nextOutgoing: [CommunityFriendRequest] = []
 
-        for request in requests {
-            guard let currentUserId else { continue }
+        guard let currentUserId else { return }
 
+        for friendship in friendships where friendship.isActive {
+            if let counterpartId = friendship.users.first(where: { $0 != currentUserId }) {
+                acceptedFriendIds.insert(counterpartId)
+            }
+        }
+
+        for request in requests {
             let counterpartId: String
             let isIncoming: Bool
 
-            if request.toUserId == currentUserId {
-                counterpartId = request.fromUserId
+            if request.resolvedReceiverId == currentUserId {
+                counterpartId = request.resolvedSenderId
                 isIncoming = true
-            } else if request.fromUserId == currentUserId {
-                counterpartId = request.toUserId
+            } else if request.resolvedSenderId == currentUserId {
+                counterpartId = request.resolvedReceiverId
                 isIncoming = false
             } else {
                 continue
@@ -588,12 +708,15 @@ final class CommunityViewModel: ObservableObject {
 
             switch request.status {
             case "accepted":
-                acceptedFriendIds.insert(counterpartId)
+                let friendshipId = [currentUserId, counterpartId].sorted().joined(separator: "_")
+                if !friendships.contains(where: { ($0.friendshipId.isEmpty ? $0.id : $0.friendshipId) == friendshipId }) {
+                    acceptedFriendIds.insert(counterpartId)
+                }
             case "pending":
                 pendingIds.insert(counterpartId)
                 guard let counterpart = userDirectory[counterpartId] else { continue }
                 let item = CommunityFriendRequest(
-                    id: request.id,
+                    id: request.documentId,
                     friend: makeCommunityFriend(from: counterpart),
                     source: request.source,
                     createdAt: request.createdAt,
@@ -611,8 +734,12 @@ final class CommunityViewModel: ObservableObject {
 
         friendIds = acceptedFriendIds
         pendingRequestUserIds = pendingIds
-        incomingFriendRequests = nextIncoming.sorted { $0.createdAt > $1.createdAt }
-        outgoingFriendRequests = nextOutgoing.sorted { $0.createdAt > $1.createdAt }
+        incomingFriendRequests = nextIncoming
+            .filter { !blockedUserIds.contains($0.friend.id) }
+            .sorted { $0.createdAt > $1.createdAt }
+        outgoingFriendRequests = nextOutgoing
+            .filter { !blockedUserIds.contains($0.friend.id) }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
     private func refreshSocialDiscovery() {
@@ -622,29 +749,26 @@ final class CommunityViewModel: ObservableObject {
             return
         }
 
-        let normalizedContacts = contactEmailDirectory.reduce(into: [String: String]()) { result, item in
-            let normalized = normalizeEmail(item.key)
-            if !normalized.isEmpty {
-                result[normalized] = item.value
+        let hashedContacts = contactEmailDirectory.reduce(into: [String: String]()) { result, item in
+            if let emailHash = contactEmailHash(item.key) {
+                result[emailHash] = item.value
             }
         }
 
         let matchedUsers = rankedUsers.filter { user in
-            let normalizedEmail = normalizeEmail(user.email)
             return user.uid != currentUserId
                 && !friendIds.contains(user.uid)
                 && !pendingRequestUserIds.contains(user.uid)
-                && !normalizedEmail.isEmpty
-                && normalizedContacts[normalizedEmail] != nil
+                && !blockedUserIds.contains(user.uid)
+                && (user.contactEmailHash.flatMap { hashedContacts[$0] } != nil)
         }
 
         let contactMatchedIds = Set(matchedUsers.map(\.uid))
         contactMatches = matchedUsers.prefix(20).map { user in
-            let normalizedEmail = normalizeEmail(user.email)
             return ContactMatchedFriend(
                 id: user.uid,
                 friend: makeCommunityFriend(from: user),
-                contactName: normalizedContacts[normalizedEmail] ?? user.displayName
+                contactName: user.contactEmailHash.flatMap { hashedContacts[$0] } ?? user.displayName
             )
         }
 
@@ -653,24 +777,43 @@ final class CommunityViewModel: ObservableObject {
                 user.uid != currentUserId
                     && !friendIds.contains(user.uid)
                     && !pendingRequestUserIds.contains(user.uid)
+                    && !blockedUserIds.contains(user.uid)
                     && !contactMatchedIds.contains(user.uid)
             }
             .prefix(12)
             .map { makeCommunityFriend(from: $0) }
     }
 
-    private func normalizeEmail(_ email: String) -> String {
-        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    private func contactEmailHash(_ email: String) -> String? {
+        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        let digest = SHA256.hash(data: Data(normalized.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func makeCommunityFriend(from user: FirestoreUser) -> CommunityFriend {
+    private func makeCommunityFriend(from user: FirestorePublicUser) -> CommunityFriend {
         CommunityFriend(
             id: user.uid,
+            username: user.resolvedUsername,
+            searchId: user.resolvedUsername,
             name: user.displayName,
+            photoURL: user.photoURL,
             level: RunnerLevel(rawValue: user.level) ?? .starter,
-            totalDistanceKm: user.totalDistanceKm,
-            totalRuns: user.totalRuns
+            totalDistanceKm: user.resolvedTotalDistanceKm,
+            totalRuns: user.resolvedTotalRuns
         )
+    }
+
+    private func matchesSearchQuery(_ user: FirestorePublicUser, normalizedQuery: String) -> Bool {
+        guard !normalizedQuery.isEmpty else { return false }
+
+        let normalizedName = user.displayNameLower ?? FirestorePublicUser.normalizedSearchText(user.displayName)
+        let normalizedSearchId = user.usernameLower ?? user.searchId ?? FirestorePublicUser.searchId(from: user.uid)
+        let normalizedUid = FirestorePublicUser.normalizedSearchText(user.uid)
+
+        return normalizedName.hasPrefix(normalizedQuery)
+            || normalizedSearchId.hasPrefix(normalizedQuery)
+            || normalizedUid.hasPrefix(normalizedQuery)
     }
 
     private func makeMatePost(from post: FirestoreMatePost) -> RunMatePost {
@@ -742,11 +885,13 @@ struct CommunityView: View {
     @Environment(\.openURL) private var openURL
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @StateObject private var viewModel = CommunityViewModel()
+    @StateObject private var friendshipViewModel = FriendshipViewModel()
     @StateObject private var contactsService = ContactsService()
     @State private var selectedTab: CommunityTab = .mate
     @State private var selectedMateMode: MateMode = .friends
     @State private var showCreateMate = false
     @State private var showCreateFeed = false
+    @State private var friendSearchText = ""
     @State private var mapSearchText = ""
     @State private var mapSearchResults: [MKMapItem] = []
     @State private var mapCameraPosition: MapCameraPosition = .automatic
@@ -769,11 +914,13 @@ struct CommunityView: View {
 
     enum MateMode: String, CaseIterable {
         case friends = "친구"
+        case requests = "요청"
         case discover = "찾기"
 
         var icon: String {
             switch self {
             case .friends: return "person.2.wave.2.fill"
+            case .requests: return "bell.badge.fill"
             case .discover: return "location.magnifyingglass"
             }
         }
@@ -796,11 +943,11 @@ struct CommunityView: View {
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 14) {
-                                if let error = viewModel.errorMessage {
+                                if selectedTab == .feed, let error = viewModel.errorMessage {
                                     errorBanner(error)
                                 }
 
-                                if viewModel.isLoading && viewModel.matePosts.isEmpty && viewModel.feedPosts.isEmpty {
+                                if selectedTab == .feed && viewModel.isLoading && viewModel.feedPosts.isEmpty {
                                     ProgressView()
                                         .tint(RBColor.accent)
                                         .padding(.top, 40)
@@ -818,6 +965,7 @@ struct CommunityView: View {
                         }
                         .refreshable {
                             await viewModel.reload()
+                            await friendshipViewModel.refresh()
                         }
                         .contentMargins(.bottom, RBLayout.scrollBottomInset, for: .scrollContent)
                     }
@@ -876,12 +1024,18 @@ struct CommunityView: View {
             }
             .task(id: backendService.userId) {
                 viewModel.configure(backendService: backendService)
+                friendshipViewModel.configure(backendService: backendService)
                 contactsService.refreshAuthorizationStatus()
                 if contactsService.isAuthorized {
                     await contactsService.loadContacts()
                 }
                 await viewModel.reload()
+                await friendshipViewModel.refresh()
                 viewModel.updateContactDirectory(contactsService.contactEmailDirectory)
+            }
+            .task(id: friendshipViewModel.relationshipRevision) {
+                guard friendshipViewModel.relationshipRevision > 0 else { return }
+                await viewModel.reload()
             }
         }
     }
@@ -895,7 +1049,7 @@ struct CommunityView: View {
                         .foregroundStyle(RBColor.textPrimary)
 
                     if backendService.isSignedIn, selectedTab == .mate {
-                        Text(appLanguage.text("친구와 메이트를 관리합니다", "Manage friends and running mates"))
+                        Text(appLanguage.text("친구와 요청을 관리합니다", "Manage friends and requests"))
                             .font(RBFont.caption(11))
                             .foregroundStyle(RBColor.textSecondary)
                     }
@@ -929,28 +1083,44 @@ struct CommunityView: View {
     }
 
     private var addButton: some View {
-        Button {
-            if selectedTab == .mate {
-                showCreateMate = true
+        Group {
+            if selectedTab == .mate, let inviteText = friendshipViewModel.inviteShareText {
+                ShareLink(item: inviteText) {
+                    addButtonChrome
+                }
             } else {
-                showCreateFeed = true
+                Button {
+                    showCreateFeed = true
+                } label: {
+                    addButtonChrome
+                }
             }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(RBColor.accentGradient)
-                    .frame(width: 52, height: 52)
-                Image(systemName: "plus")
-                    .font(.system(size: 20, weight: .heavy))
-            }
-            .foregroundStyle(.white)
-            .overlay(
-                Circle()
-                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
-            )
-            .shadow(color: RBColor.accent.opacity(0.35), radius: 14, y: 8)
         }
-        .accessibilityLabel(selectedTab == .mate ? appLanguage.text("모집 글 추가", "Add mate post") : appLanguage.text("피드 추가", "Add feed post"))
+        .accessibilityLabel(selectedTab == .mate ? appLanguage.text("내 아이디 공유", "Share my ID") : appLanguage.text("피드 추가", "Add feed post"))
+    }
+
+    private var addButtonChrome: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    selectedTab == .mate
+                        ? LinearGradient(
+                            colors: [AppColorTheme.ember.primary, AppColorTheme.ember.gradientTail],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        : RBColor.accentGradient
+                )
+                .frame(width: 52, height: 52)
+            Image(systemName: selectedTab == .mate ? "square.and.arrow.up" : "plus")
+                .font(.system(size: 18, weight: .heavy))
+        }
+        .foregroundStyle(.black)
+        .overlay(
+            Circle()
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .shadow(color: RBColor.accent.opacity(0.35), radius: 14, y: 8)
     }
 
     private var signInRequiredState: some View {
@@ -977,7 +1147,8 @@ struct CommunityView: View {
             VStack(spacing: 12) {
                 LocalizedAppleSignInButton(
                     title: appLanguage.text("Apple로 로그인", "Sign in with Apple"),
-                    isAuthenticating: authService.isAuthenticating
+                    isAuthenticating: authService.selectedProvider == .apple,
+                    isAvailable: authService.isAppleSignInAvailable
                 ) { request in
                     authService.prepareAppleSignInRequest(request)
                 } onCompletion: { result in
@@ -987,10 +1158,17 @@ struct CommunityView: View {
                     }
                 }
 
+                if let availabilityMessage = authService.appleSignInAvailabilityMessage {
+                    Text(availabilityMessage)
+                        .font(RBFont.caption(11))
+                        .foregroundStyle(RBColor.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
                 if authService.isGoogleSignInAvailable {
                     GoogleBrandedSignInButton(
                         title: appLanguage.text("Google로 로그인", "Sign in with Google"),
-                        isAuthenticating: authService.isAuthenticating
+                        isAuthenticating: authService.selectedProvider == .google
                     ) {
                         Task {
                             await authService.signInWithGoogle(backendService: backendService)
@@ -1054,7 +1232,7 @@ struct CommunityView: View {
                         Text(tab == .mate ? appLanguage.text("러닝 메이트", "Running Mate") : appLanguage.text("피드", "Feed"))
                             .font(RBFont.label(14))
                     }
-                    .foregroundStyle(selectedTab == tab ? .white : RBColor.textSecondary)
+                    .foregroundStyle(selectedTab == tab ? .black : RBColor.textSecondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
                     .background {
@@ -1063,7 +1241,7 @@ struct CommunityView: View {
                     }
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(selectedTab == tab ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                            .stroke(selectedTab == tab ? Color.black.opacity(0.18) : RBColor.divider.opacity(0.7), lineWidth: 1)
                     )
                     .shadow(color: selectedTab == tab ? RBColor.accent.opacity(0.18) : .clear, radius: 12, y: 6)
                 }
@@ -1072,47 +1250,13 @@ struct CommunityView: View {
     }
 
     private var mateModeSelector: some View {
-        HStack(spacing: 8) {
-            ForEach(MateMode.allCases, id: \.self) { mode in
-                Button {
-                    withAnimation(.spring(response: 0.3)) {
-                        selectedMateMode = mode
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: mode.icon)
-                            .font(.system(size: 12))
-                        Text(mode == .friends ? appLanguage.text("친구", "Friends") : appLanguage.text("찾기", "Discover"))
-                            .font(RBFont.label(13))
-                    }
-                    .foregroundStyle(selectedMateMode == mode ? .white : RBColor.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 38)
-                    .background {
-                        Capsule()
-                            .fill(selectedMateMode == mode ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(RBColor.cardBg))
-                    }
-                    .overlay(
-                        Capsule()
-                            .stroke(selectedMateMode == mode ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.7), lineWidth: 1)
-                    )
-                    .clipShape(Capsule())
-                }
-            }
-        }
+        FriendTabs(selection: $selectedMateMode)
     }
 
     // MARK: - Mate Content
 
     private var mateContent: some View {
-        Group {
-            switch selectedMateMode {
-            case .friends:
-                mateFriendsContent
-            case .discover:
-                mateDiscoverContent
-            }
-        }
+        CommunityFriendView(viewModel: friendshipViewModel, selection: $selectedMateMode)
     }
 
     private var mateFriendsContent: some View {
@@ -1128,6 +1272,8 @@ struct CommunityView: View {
             if !viewModel.outgoingFriendRequests.isEmpty {
                 outgoingFriendRequestsSection
             }
+
+            friendSearchSection
 
             if !viewModel.friends.isEmpty {
                 friendsRecordSection
@@ -1439,7 +1585,7 @@ struct CommunityView: View {
                     } label: {
                         Text(appLanguage.text("수락", "Accept"))
                             .font(RBFont.label(13))
-                            .foregroundStyle(RBColor.textPrimary)
+                            .foregroundStyle(.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
                             .background(RBColor.accentGradient)
@@ -1526,7 +1672,7 @@ struct CommunityView: View {
                                  : appLanguage.text("연락처 접근 허용", "Allow Contacts"))
                                 .font(RBFont.label(13))
                         }
-                        .foregroundStyle(RBColor.textPrimary)
+                        .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
                         .background(RBColor.accentGradient)
@@ -1583,7 +1729,7 @@ struct CommunityView: View {
                     Text(appLanguage.text("친구 요청", "Send Request"))
                         .font(RBFont.label(13))
                 }
-                .foregroundStyle(RBColor.textPrimary)
+                .foregroundStyle(.black)
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
                 .background(RBColor.accentGradient)
@@ -1882,6 +2028,97 @@ struct CommunityView: View {
         }
     }
 
+    private var friendSearchSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(appLanguage.text("아이디로 친구 찾기", "Find Friends by ID"))
+                        .font(RBFont.label(16))
+                        .foregroundStyle(RBColor.textPrimary)
+                    Text(appLanguage.text("러너 아이디 또는 이름 앞부분으로 검색하세요. 예: @ab12cd34", "Search by runner ID or the beginning of a name. Example: @ab12cd34"))
+                        .font(RBFont.caption(11))
+                        .foregroundStyle(RBColor.textSecondary)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(RBColor.textTertiary)
+
+                    TextField(appLanguage.text("아이디 또는 이름", "Runner ID or name"), text: $friendSearchText)
+                        .font(RBFont.label(14))
+                        .foregroundStyle(RBColor.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit {
+                            Task {
+                                await viewModel.searchFriends(query: friendSearchText)
+                            }
+                        }
+
+                    if !friendSearchText.isEmpty {
+                        Button {
+                            friendSearchText = ""
+                            viewModel.clearFriendSearch()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(RBColor.textTertiary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(RBColor.cardBg)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(RBColor.divider.opacity(0.8), lineWidth: 1)
+                )
+
+                Button {
+                    Task {
+                        await viewModel.searchFriends(query: friendSearchText)
+                    }
+                } label: {
+                    Text(appLanguage.text("검색", "Search"))
+                        .font(RBFont.label(13))
+                        .foregroundStyle(RBColor.textPrimary)
+                        .padding(.horizontal, 16)
+                        .frame(height: 46)
+                        .background(RBColor.accentGradient)
+                        .clipShape(Capsule())
+                }
+                .disabled(viewModel.isSearchingUsers || friendSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(viewModel.isSearchingUsers || friendSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.6 : 1)
+            }
+
+            if viewModel.isSearchingUsers {
+                ProgressView()
+                    .tint(RBColor.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(RBColor.cardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            } else if !viewModel.searchedFriends.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(viewModel.searchedFriends) { friend in
+                        searchableFriendCard(friend)
+                    }
+                }
+            } else if !friendSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                emptyState(
+                    icon: "person.crop.circle.badge.questionmark",
+                    title: appLanguage.text("검색 결과가 없어요", "No matching runners"),
+                    subtitle: appLanguage.text("아직 공개 프로필에 검색용 아이디가 동기화되지 않은 사용자는 검색되지 않을 수 있어요.", "Users whose public profile hasn't synced search fields yet may not appear here.")
+                )
+            }
+        }
+    }
+
     private func suggestedFriendCard(_ friend: CommunityFriend) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
@@ -1898,6 +2135,9 @@ struct CommunityView: View {
                     Text(friend.name)
                         .font(RBFont.label(15))
                         .foregroundStyle(RBColor.textPrimary)
+                    Text("@\(friend.searchId)")
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(RBColor.textTertiary)
                     Text(friend.level.localizedName(appLanguage))
                         .font(RBFont.caption(10))
                         .foregroundStyle(communityLevelColor(friend.level))
@@ -1918,6 +2158,67 @@ struct CommunityView: View {
             Button {
                 Task {
                     await viewModel.addFriend(friendId: friend.id)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(appLanguage.text("친구 요청", "Send Request"))
+                        .font(RBFont.label(13))
+                }
+                .foregroundStyle(RBColor.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(RBColor.accentGradient)
+                .clipShape(Capsule())
+            }
+            .disabled(viewModel.isSubmitting)
+            .opacity(viewModel.isSubmitting ? 0.6 : 1)
+        }
+        .padding(16)
+        .background(RBColor.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func searchableFriendCard(_ friend: CommunityFriend) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(communityLevelColor(friend.level).opacity(0.18))
+                        .frame(width: 52, height: 52)
+                    Text(String(friend.name.prefix(1)))
+                        .font(RBFont.label(18))
+                        .foregroundStyle(communityLevelColor(friend.level))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(friend.name)
+                        .font(RBFont.label(15))
+                        .foregroundStyle(RBColor.textPrimary)
+                    Text("@\(friend.searchId)")
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(RBColor.textTertiary)
+                    Text(friend.level.localizedName(appLanguage))
+                        .font(RBFont.caption(10))
+                        .foregroundStyle(communityLevelColor(friend.level))
+                }
+
+                Spacer()
+
+                Text(friend.recordSummary)
+                    .font(RBFont.caption(11))
+                    .foregroundStyle(RBColor.textSecondary)
+            }
+
+            HStack(spacing: 10) {
+                compactFriendStat(title: appLanguage.text("거리", "Distance"), value: String(format: "%.1fkm", friend.totalDistanceKm))
+                compactFriendStat(title: appLanguage.text("러닝", "Runs"), value: appLanguage.text("\(friend.totalRuns)회", "\(friend.totalRuns)x"))
+            }
+
+            Button {
+                Task {
+                    await viewModel.addFriend(friendId: friend.id, source: "search")
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -2016,7 +2317,7 @@ struct CommunityView: View {
                 } label: {
                     Text(scope == .all ? appLanguage.text("전체 피드", "All Feed") : appLanguage.text("친구 피드", "Friends"))
                         .font(RBFont.label(12))
-                        .foregroundStyle(viewModel.feedScope == scope ? .white : RBColor.textSecondary)
+                        .foregroundStyle(viewModel.feedScope == scope ? .black : RBColor.textSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 34)
                         .background {
@@ -2025,7 +2326,7 @@ struct CommunityView: View {
                         }
                         .overlay(
                             Capsule()
-                                .stroke(viewModel.feedScope == scope ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                                .stroke(viewModel.feedScope == scope ? Color.black.opacity(0.18) : RBColor.divider.opacity(0.7), lineWidth: 1)
                         )
                         .clipShape(Capsule())
                 }

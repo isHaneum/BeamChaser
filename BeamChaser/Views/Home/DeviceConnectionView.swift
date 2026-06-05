@@ -11,6 +11,16 @@ struct DeviceConnectionView: View {
         AppLanguage(rawValue: appLanguageRaw) ?? .system
     }
 
+    private var visibleDevices: [CBPeripheral] {
+        bleService.discoveredDevices.filter { device in
+            if shouldDisplayDevice(device) {
+                return true
+            }
+
+            return bleService.isScanningAllDevices && hasReadableDeviceName(device)
+        }
+    }
+
     var body: some View {
         ZStack {
             RBColor.bg.ignoresSafeArea()
@@ -43,7 +53,7 @@ struct DeviceConnectionView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    if let hint = bleService.scanHint {
+                    if let hint = bleService.scanHint, !bleService.isConnected {
                         HStack(spacing: 10) {
                             Image(systemName: "info.circle.fill")
                                 .foregroundStyle(RBColor.accent)
@@ -73,24 +83,21 @@ struct DeviceConnectionView: View {
                     }
                     .padding(.horizontal, 4)
 
-                    if bleService.discoveredDevices.isEmpty && !bleService.isScanning {
+                    if visibleDevices.isEmpty && !bleService.isScanning {
                         VStack(spacing: 12) {
                             Image(systemName: "antenna.radiowaves.left.and.right")
                                 .font(.system(size: 40))
                                 .foregroundStyle(RBColor.textTertiary)
-                            Text(appLanguage.localized("장치를 검색해주세요"))
+                            Text(appLanguage.text("장치를 검색해주세요", "Scan for your device"))
                                 .font(RBFont.label(15))
                                 .foregroundStyle(RBColor.textSecondary)
-                            Text(appLanguage.localized("HM-10 BLE 모듈이 켜져 있는지 확인하세요"))
-                                .font(RBFont.caption(12))
-                                .foregroundStyle(RBColor.textTertiary)
                         }
                         .padding(.vertical, 40)
                     }
 
                     // 장치 목록
                     VStack(spacing: 0) {
-                        ForEach(Array(bleService.discoveredDevices.enumerated()), id: \.element.identifier) { index, device in
+                        ForEach(Array(visibleDevices.enumerated()), id: \.element.identifier) { index, device in
                             if index > 0 {
                                 Divider().padding(.leading, 54).overlay(RBColor.divider)
                             }
@@ -109,12 +116,6 @@ struct DeviceConnectionView: View {
                                         Text(deviceSubtitle(for: device))
                                             .font(RBFont.caption(11))
                                             .foregroundStyle(RBColor.textTertiary)
-                                        if let serviceSummary = advertisedServiceSummary(for: device) {
-                                            Text(serviceSummary)
-                                                .font(RBFont.caption(10))
-                                                .foregroundStyle(RBColor.textTertiary)
-                                                .lineLimit(1)
-                                        }
                                     }
                                     Spacer()
                                 }
@@ -207,48 +208,6 @@ struct DeviceConnectionView: View {
                 }
             }
 
-            if let characteristicUUID = bleService.activeCharacteristicUUID {
-                Text("CHAR \(characteristicUUID)")
-                    .font(RBFont.caption(10))
-                    .foregroundStyle(RBColor.textTertiary)
-                    .lineLimit(1)
-            }
-
-            if let control = bleService.lastPhoneControlPayload {
-                Text("APP CTRL \(Double(control.speedCentimetersPerSecond) / 100, specifier: "%.2f")m/s · \(control.zone.label) · SERVO \(control.servoAngleDegrees)°")
-                    .font(RBFont.caption(10))
-                    .foregroundStyle(RBColor.textTertiary)
-                    .lineLimit(1)
-            }
-
-            if bleService.lastSentCommandHex != nil || bleService.lastReceivedPacketHex != nil {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let gps = bleService.lastPhoneGPSCommandHex {
-                        Text("GPS TX \(gps)")
-                            .font(RBFont.caption(10))
-                            .foregroundStyle(RBColor.textTertiary)
-                            .lineLimit(1)
-                    }
-                    if let control = bleService.lastPhoneControlCommandHex {
-                        Text("CTRL TX \(control)")
-                            .font(RBFont.caption(10))
-                            .foregroundStyle(RBColor.textTertiary)
-                            .lineLimit(1)
-                    }
-                    if let tx = bleService.lastSentCommandHex {
-                        Text("TX \(tx)")
-                            .font(RBFont.caption(10))
-                            .foregroundStyle(RBColor.textTertiary)
-                            .lineLimit(1)
-                    }
-                    if let rx = bleService.lastReceivedPacketHex {
-                        Text("RX \(rx)")
-                            .font(RBFont.caption(10))
-                            .foregroundStyle(RBColor.textTertiary)
-                            .lineLimit(1)
-                    }
-                }
-            }
         }
         .padding(16)
         .background(RBColor.success.opacity(0.08))
@@ -400,23 +359,48 @@ struct DeviceConnectionView: View {
         if let metadataName = bleService.discoveredDeviceMetadata[device.identifier]?.displayName {
             return metadataName
         }
-        return device.name ?? appLanguage.localized("알 수 없는 장치")
+        if let deviceName = device.name, hasReadableDeviceName(device) {
+            return deviceName
+        }
+        return appLanguage.text("주변 BLE 장치", "Nearby BLE Device")
     }
 
     private func deviceSubtitle(for device: CBPeripheral) -> String {
-        let id = String(device.identifier.uuidString.prefix(8)) + "..."
         if let rssi = bleService.discoveredDeviceMetadata[device.identifier]?.rssi {
-            return "\(id) · RSSI \(rssi)dBm"
+            return appLanguage.text("신호 \(rssi)dBm", "Signal \(rssi)dBm")
         }
-        return id
+        return appLanguage.text("신호 정보 없음", "No signal info")
     }
 
-    private func advertisedServiceSummary(for device: CBPeripheral) -> String? {
-        guard let serviceUUIDs = bleService.discoveredDeviceMetadata[device.identifier]?.advertisedServiceUUIDs,
-              !serviceUUIDs.isEmpty else {
-            return nil
+    private func shouldDisplayDevice(_ device: CBPeripheral) -> Bool {
+        if let serviceUUIDs = bleService.discoveredDeviceMetadata[device.identifier]?.advertisedServiceUUIDs,
+           serviceUUIDs.contains(where: { $0.uppercased().contains("FFE0") || $0.uppercased().contains("FFF0") }) {
+            return true
         }
-        return "ADV " + serviceUUIDs.prefix(2).joined(separator: ", ")
+
+        let rawName = bleService.discoveredDeviceMetadata[device.identifier]?.displayName
+            ?? device.name
+            ?? ""
+        let normalized = rawName.lowercased()
+        if normalized.isEmpty { return false }
+
+        let keywords = ["beam", "chaser", "hm-10", "hm10", "laser"]
+        return keywords.contains(where: { normalized.contains($0) })
+    }
+
+    private func hasReadableDeviceName(_ device: CBPeripheral) -> Bool {
+        let rawName = bleService.discoveredDeviceMetadata[device.identifier]?.displayName
+            ?? device.name
+            ?? ""
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else { return false }
+
+        let uppercased = trimmed.uppercased()
+        if uppercased.contains("FFE0") || uppercased.contains("FFF0") || uppercased.contains("UNKNOWN") {
+            return false
+        }
+
+        return true
     }
 }
 

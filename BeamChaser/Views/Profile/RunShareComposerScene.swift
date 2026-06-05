@@ -1692,17 +1692,17 @@ struct RunShareComposerScene: View {
 
             if let start = points.first {
                 Circle()
-                    .fill(routeColorPreset.gradientColors.first ?? routeColorPreset.primaryColor)
-                    .frame(width: 12, height: 12)
-                    .overlay(Circle().stroke(Color.white, lineWidth: 3))
+                    .fill((routeColorPreset.gradientColors.first ?? routeColorPreset.primaryColor).opacity(0.56))
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().stroke(Color.white.opacity(0.80), lineWidth: 2.5))
                     .position(start)
             }
 
             if let end = points.last {
                 Circle()
-                    .fill(Color.white)
-                    .frame(width: 14, height: 14)
-                    .overlay(Circle().stroke(Color.red.opacity(0.90), lineWidth: 3))
+                    .fill(Color.white.opacity(0.92))
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().stroke(Color.red.opacity(0.50), lineWidth: 2.5))
                     .position(end)
             }
         }

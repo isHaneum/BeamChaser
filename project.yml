@@ -29,6 +29,7 @@ targets:
         excludes:
           - "**/*.c"
           - "**/*.ino"
+          - "**/* [0-9].swift"
           - "GoogleService-Info.plist"
           - "Resources/GoogleService-Info (1).plist"
           - "Resources/GoogleService-Info (2).plist"
@@ -121,3 +122,15 @@ targets:
       path: BeamChaserWatch/Resources/BeamChaserWatch.entitlements
       properties:
         com.apple.developer.healthkit: true
+
+  BeamChaserTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BeamChaserTests
+    dependencies:
+      - target: BeamChaser
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.haneum.beamchaser.tests
+        GENERATE_INFOPLIST_FILE: YES

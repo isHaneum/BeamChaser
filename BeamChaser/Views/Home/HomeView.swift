@@ -3,11 +3,13 @@ import MapKit
 
 struct HomeView: View {
 
+    @Binding private var hidesRootTabBar: Bool
     @EnvironmentObject var bleService: BLEService
     @EnvironmentObject var locationService: LocationService
     @EnvironmentObject var runSession: RunSessionManager
     @EnvironmentObject var profileService: ProfileService
     @EnvironmentObject var backendService: BackendService
+    @EnvironmentObject private var appNavigation: AppNavigationModel
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     #if targetEnvironment(simulator)
     @State private var cameraPosition: MapCameraPosition = .camera(MapCamera(
@@ -25,9 +27,13 @@ struct HomeView: View {
     @State private var dragOffset: CGFloat = 0    // 드래그 중 오프셋
 
     // 접힌 상태: 버튼까지만
-    private let collapsedHeight: CGFloat = 80
+    private let collapsedHeight: CGFloat = 74
     @State private var navigateToRunSetup = false
     @State private var navigateToDeviceConnection = false
+
+    init(hidesRootTabBar: Binding<Bool> = .constant(false)) {
+        _hidesRootTabBar = hidesRootTabBar
+    }
 
     private var appLanguage: AppLanguage {
         AppLanguage(rawValue: appLanguageRaw) ?? .system
@@ -59,7 +65,7 @@ struct HomeView: View {
 
                     // ── 하단 패널 ──
                     bottomPanel
-                        .padding(.bottom, RBLayout.tabBarClearance + max(geo.safeAreaInsets.bottom, 34))  // 탭바 + safe area 위에 위치
+                        .padding(.bottom, RBLayout.tabBarClearance + max(geo.safeAreaInsets.bottom, 10))
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
             }
@@ -72,11 +78,27 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $navigateToRunSetup) {
                 PaceSetupView()
+                    .onAppear { hidesRootTabBar = true }
+                    .onDisappear { updateRootTabVisibility() }
             }
             .navigationDestination(isPresented: $navigateToDeviceConnection) {
                 DeviceConnectionView()
+                    .onAppear { hidesRootTabBar = true }
+                    .onDisappear { updateRootTabVisibility() }
+            }
+            .onChange(of: navigateToRunSetup) { _, _ in
+                updateRootTabVisibility()
+            }
+            .onChange(of: navigateToDeviceConnection) { _, _ in
+                updateRootTabVisibility()
+            }
+            .onChange(of: appNavigation.homeNavigationResetToken) { _, _ in
+                navigateToRunSetup = false
+                navigateToDeviceConnection = false
+                updateRootTabVisibility()
             }
             .onAppear {
+                updateRootTabVisibility()
                 #if targetEnvironment(simulator)
                 // 시뮬레이터에서는 GPS 요청 건너뜀
                 #else
@@ -140,9 +162,13 @@ struct HomeView: View {
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(RBColor.accent)
                 .frame(width: 54, height: 54)
-                .background(.ultraThinMaterial)
-                .clipShape(Circle())
-                .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+                .background(RBColor.chrome)
+                .overlay(
+                    RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
+                .shadow(color: .black.opacity(0.12), radius: 10, y: 6)
         }
         .buttonStyle(.plain)
     }
@@ -162,10 +188,13 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(minHeight: collapsedHeight, alignment: .top)
-        .background(.ultraThinMaterial)
-        .environment(\.colorScheme, .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: .black.opacity(0.24), radius: 18, y: 10)
+        .background(RBColor.chrome)
+        .overlay(
+            RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
+                .stroke(RBColor.divider.opacity(0.8), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 14, y: 8)
         .padding(.horizontal, 12)
         .offset(y: dragOffset)
         .gesture(panelDragGesture)
@@ -175,8 +204,8 @@ struct HomeView: View {
 
     private var dragHandle: some View {
         VStack(spacing: 6) {
-            Capsule()
-                .fill(Color.white.opacity(0.4))
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(RBColor.textTertiary.opacity(0.5))
                 .frame(width: 36, height: 5)
                 .padding(.top, 10)
         }
@@ -217,11 +246,11 @@ struct HomeView: View {
     // MARK: - 항상 표시: 로고 + 버튼
 
     private var buttonContent: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("BeamChaser")
-                        .font(RBFont.hero(22))
+                        .font(RBFont.hero(24))
                         .foregroundStyle(RBColor.textPrimary)
                     Text(appLanguage.text("라인 레이저 페이스메이커", "Line Laser Pacemaker"))
                         .font(RBFont.caption(11))
@@ -236,22 +265,29 @@ struct HomeView: View {
                 .buttonStyle(.plain)
 
                 // 챌린지 접힘/펼침 화살표
-                Image(systemName: panelExpanded ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(RBColor.textTertiary)
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            panelExpanded.toggle()
-                        }
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        panelExpanded.toggle()
                     }
+                } label: {
+                    Image(systemName: panelExpanded ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(RBColor.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    panelExpanded
+                    ? appLanguage.text("챌린지 패널 접기", "Collapse challenges panel")
+                    : appLanguage.text("챌린지 패널 펼치기", "Expand challenges panel")
+                )
             }
             .padding(.horizontal, 20)
 
             actionButtons
                 .padding(.horizontal, 20)
-                .padding(.bottom, 16)
+                .padding(.bottom, 14)
         }
-        .padding(.top, 10)
+        .padding(.top, 6)
     }
 
     // MARK: - 장치 상태 칩
@@ -292,8 +328,8 @@ struct HomeView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(RBColor.cardBg)
-        .clipShape(Capsule())
+        .background(RBColor.cardBgLight)
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.button, style: .continuous))
     }
 
     private var actionButtons: some View {
@@ -312,13 +348,13 @@ struct HomeView: View {
                 }
                 .foregroundStyle(RBColor.textPrimary)
                 .frame(maxWidth: .infinity)
-                .frame(height: 56)
+                .frame(height: 54)
                 .background(RBColor.cardBg)
                 .overlay(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: RBRadius.button, style: .continuous)
                         .stroke(bleService.isConnected ? RBColor.success.opacity(0.35) : RBColor.accent.opacity(0.35), lineWidth: 1)
                 )
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: RBRadius.button, style: .continuous))
             }
 
             Button {
@@ -327,17 +363,18 @@ struct HomeView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill")
                         .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(RBColor.onAccent)
                     Text(bleService.isConnected
                          ? appLanguage.text("시작하기", "Start Run")
                          : appLanguage.text("바로 시작", "Quick Start"))
                         .font(RBFont.label(15))
+                        .foregroundStyle(RBColor.onAccent)
                         .lineLimit(1)
                 }
-                .foregroundStyle(RBColor.textPrimary)
                 .frame(maxWidth: .infinity)
-                .frame(height: 56)
+                .frame(height: 54)
                 .background(RBColor.accentGradient)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: RBRadius.button, style: .continuous))
             }
         }
     }
@@ -347,6 +384,11 @@ struct HomeView: View {
             bleService.startScanning()
         }
         navigateToDeviceConnection = true
+        updateRootTabVisibility()
+    }
+
+    private func updateRootTabVisibility() {
+        hidesRootTabBar = navigateToRunSetup || navigateToDeviceConnection
     }
 
     private func batteryIcon(percent: Int, isCharging: Bool) -> some View {
@@ -445,9 +487,9 @@ struct HomeView: View {
         }
         .padding(16)
         .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
                 .stroke(tint.opacity(0.18), lineWidth: 1)
         )
     }
@@ -479,7 +521,7 @@ struct HomeView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.white.opacity(0.08))
+                        .fill(RBColor.cardBgLight)
                         .frame(height: 8)
 
                     Capsule()
@@ -502,7 +544,7 @@ struct HomeView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(RBColor.cardBgLight)
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.button, style: .continuous))
     }
 }
 

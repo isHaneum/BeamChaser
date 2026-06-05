@@ -39,7 +39,7 @@ enum RunnerLevel: String, CaseIterable, Codable {
         case .silver: return "silver"
         case .gold: return "gold"
         case .laser: return "red"
-        case .beam: return "orange"
+        case .beam: return "blue"
         }
     }
 

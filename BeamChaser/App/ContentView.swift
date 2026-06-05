@@ -1,10 +1,40 @@
 import SwiftUI
 
+enum AppTab: CaseIterable {
+    case home
+    case history
+    case community
+    case profile
+}
+
+@MainActor
+final class AppNavigationModel: ObservableObject {
+    @Published var selectedTab: AppTab = .home
+    @Published var pendingRunRecordId: UUID?
+    @Published var homeNavigationResetToken = UUID()
+
+    func selectTab(_ tab: AppTab) {
+        selectedTab = tab
+    }
+
+    func openRunDetailAfterFinish(recordId: UUID) {
+        pendingRunRecordId = recordId
+        selectedTab = .history
+        homeNavigationResetToken = UUID()
+    }
+
+    func consumePendingRunRecordId() {
+        pendingRunRecordId = nil
+    }
+}
+
 struct ContentView: View {
-    @State private var selectedTab: Tab = .home
+    @StateObject private var appNavigation = AppNavigationModel()
+    @State private var hidesRootTabBar = false
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @AppStorage("appFontPreset") private var appFontPresetRaw: String = AppFontPreset.modern.rawValue
+    @AppStorage("appColorTheme") private var appColorThemeRaw: String = AppColorTheme.beam.rawValue
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     @EnvironmentObject private var locationService: LocationService
@@ -19,16 +49,12 @@ struct ContentView: View {
         AppLanguage(rawValue: appLanguageRaw) ?? .system
     }
 
-    enum Tab: CaseIterable {
-        case home, history, community, profile
-    }
-
     var body: some View {
         ZStack {
             RBColor.bg.ignoresSafeArea()
 
             ZStack {
-                tabPage(HomeView(), for: .home)
+                tabPage(HomeView(hidesRootTabBar: $hidesRootTabBar), for: .home)
                 tabPage(RunHistoryView(), for: .history)
                 tabPage(CommunityView(), for: .community)
                 tabPage(ProfileView(), for: .profile)
@@ -43,8 +69,13 @@ struct ContentView: View {
         }
         .preferredColorScheme(appearanceMode.colorScheme)
         .environment(\.locale, appLanguage.locale)
+        .environment(\.font, AppFontPreset.current.bodyFont(size: 15, weight: .medium))
+        .environmentObject(appNavigation)
         .onChange(of: appFontPresetRaw) { _, _ in
             // AppStorage changes trigger a root refresh so RBFont picks up the selected preset immediately.
+        }
+        .onChange(of: appColorThemeRaw) { _, _ in
+            // AppStorage changes trigger a root refresh so RBColor picks up the selected theme immediately.
         }
         // 최초 실행 시에만 온보딩 풀스크린 표시
         .fullScreenCover(isPresented: Binding(
@@ -57,16 +88,18 @@ struct ContentView: View {
         }
     }
 
-    private func tabPage<Content: View>(_ content: Content, for tab: Tab) -> some View {
+    private func tabPage<Content: View>(_ content: Content, for tab: AppTab) -> some View {
         content
-            .opacity(selectedTab == tab ? 1 : 0)
-            .allowsHitTesting(selectedTab == tab)
-            .accessibilityHidden(selectedTab != tab)
-            .zIndex(selectedTab == tab ? 1 : 0)
+            .opacity(appNavigation.selectedTab == tab ? 1 : 0)
+            .allowsHitTesting(appNavigation.selectedTab == tab)
+            .accessibilityHidden(appNavigation.selectedTab != tab)
+            .zIndex(appNavigation.selectedTab == tab ? 1 : 0)
     }
 
     private var shouldShowTabBar: Bool {
-        runSession.runState == .idle && runSession.currentRecord == nil
+        runSession.runState == .idle
+            && runSession.currentRecord == nil
+            && !(appNavigation.selectedTab == .home && hidesRootTabBar)
     }
 
     private var customTabBar: some View {
@@ -76,11 +109,11 @@ struct ContentView: View {
                 .frame(height: 1)
 
             HStack(spacing: 8) {
-                ForEach(Tab.allCases, id: \.self) { tab in
+                ForEach(AppTab.allCases, id: \.self) { tab in
                     Button {
-                        guard selectedTab != tab else { return }
+                        guard appNavigation.selectedTab != tab else { return }
                         withAnimation(.easeOut(duration: 0.14)) {
-                            selectedTab = tab
+                            appNavigation.selectTab(tab)
                         }
                     } label: {
                         VStack(spacing: 4) {
@@ -89,16 +122,16 @@ struct ContentView: View {
                             Text(tabTitle(tab))
                                 .font(RBFont.caption(11))
                         }
-                        .foregroundStyle(selectedTab == tab ? .white : RBColor.textSecondary)
+                        .foregroundStyle(appNavigation.selectedTab == tab ? RBColor.onAccent : RBColor.textSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
                         .background {
                             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(selectedTab == tab ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(.clear))
+                                .fill(appNavigation.selectedTab == tab ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(.clear))
                         }
                         .overlay(
                             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(selectedTab == tab ? Color.white.opacity(0.10) : Color.clear, lineWidth: 1)
+                                .stroke(appNavigation.selectedTab == tab ? Color.white.opacity(0.10) : Color.clear, lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
@@ -108,10 +141,10 @@ struct ContentView: View {
             .padding(.top, 10)
             .padding(.bottom, 16)
         }
-        .background(RBColor.bg.opacity(0.98).ignoresSafeArea())
+        .background(RBColor.chrome.ignoresSafeArea())
     }
 
-    private func tabTitle(_ tab: Tab) -> String {
+    private func tabTitle(_ tab: AppTab) -> String {
         switch tab {
         case .home:
             return appLanguage.text("홈", "Home")
@@ -124,7 +157,7 @@ struct ContentView: View {
         }
     }
 
-    private func tabIcon(_ tab: Tab) -> String {
+    private func tabIcon(_ tab: AppTab) -> String {
         switch tab {
         case .home:
             return "house.fill"

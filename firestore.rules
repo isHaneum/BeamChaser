@@ -2,99 +2,251 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ── 헬퍼 함수 ──────────────────────────────────────────
-
-    // 요청자가 로그인된 사용자인지 확인
     function isAuth() {
       return request.auth != null;
     }
 
-    // 요청자가 해당 uid 와 동일한지 확인
+    function authUid() {
+      return request.auth.uid;
+    }
+
     function isSelf(uid) {
-      return isAuth() && request.auth.uid == uid;
+      return isAuth() && authUid() == uid;
     }
 
-    // 문서 소유자(authorId 필드)인지 확인
     function isAuthor() {
-      return isAuth() && request.auth.uid == resource.data.authorId;
+      return isAuth() && authUid() == resource.data.authorId;
     }
 
-    // users/{uid} ─────────────────────────────────────────
+    function friendRequestSender(data) {
+      return data.keys().hasAny(['senderId']) ? data.senderId : data.fromUserId;
+    }
+
+    function friendRequestReceiver(data) {
+      return data.keys().hasAny(['receiverId']) ? data.receiverId : data.toUserId;
+    }
+
+    function requestDocId(senderId, receiverId) {
+      return senderId + '_' + receiverId;
+    }
+
+    function friendshipDocId(firstUid, secondUid) {
+      return firstUid < secondUid
+        ? firstUid + '_' + secondUid
+        : secondUid + '_' + firstUid;
+    }
+
+    function blockDocId(blockerId, blockedId) {
+      return blockerId + '_' + blockedId;
+    }
+
+    function isValidUserPair(data) {
+      return data.users is list
+        && data.users.size() == 2
+        && data.users[0] is string
+        && data.users[1] is string
+        && data.users[0] != data.users[1]
+        && data.users[0] < data.users[1];
+    }
+
+    function isFriendshipParticipant(data) {
+      return isAuth() && data.users is list && data.users.hasAny([authUid()]);
+    }
+
+    function hasAccountDeletionRequest(uid) {
+      return exists(/databases/$(database)/documents/accountDeletionRequests/$(uid));
+    }
+
+    function isDeletingOwnAccount() {
+      return isAuth() && hasAccountDeletionRequest(authUid());
+    }
+
+    function activeFriendship(firstUid, secondUid) {
+      let path = /databases/$(database)/documents/friendships/$(friendshipDocId(firstUid, secondUid));
+      return exists(path)
+        && (
+          !get(path).data.keys().hasAny(['status'])
+          || get(path).data.status == 'active'
+        );
+    }
+
+    function hasPendingRequest(senderId, receiverId) {
+      let path = /databases/$(database)/documents/friendRequests/$(requestDocId(senderId, receiverId));
+      return exists(path) && get(path).data.status == 'pending';
+    }
+
+    function hasBlock(blockerId, blockedId) {
+      let path = /databases/$(database)/documents/blocks/$(blockDocId(blockerId, blockedId));
+      return exists(path);
+    }
+
     match /users/{uid} {
-      // 본인 프로필만 읽기/쓰기. 커뮤니티 기능상 다른 유저 프로필 읽기도 허용.
-      allow read: if isAuth();
-      allow create: if isSelf(uid);
+      allow read: if isSelf(uid);
+      allow create: if isSelf(uid) && request.resource.data.uid == uid;
       allow update: if isSelf(uid)
-        // 허용된 필드만 업데이트 가능 (권한 상승 차단)
-        && !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['uid', 'createdAt', 'email']);
+        && request.resource.data.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid', 'createdAt']);
       allow delete: if isSelf(uid);
 
-      // 친구 링크 서브컬렉션
       match /friends/{friendId} {
-        allow read: if isSelf(uid);
-        allow create, update: if isSelf(uid)
-          && request.resource.data.friendId == friendId;
-        allow delete: if isSelf(uid);
+        allow read, create, update, delete: if isSelf(uid);
       }
 
-      // 차단 목록 서브컬렉션
       match /blockedUsers/{blockedUid} {
-        allow read: if isSelf(uid);
-        allow write: if isSelf(uid);
+        allow read, write: if isSelf(uid);
+      }
+
+      match /challengeProgress/{progressId} {
+        allow read, write: if isSelf(uid);
       }
     }
 
-    // friendRequests/{requestId} ──────────────────────────
+    match /publicUsers/{uid} {
+      allow read: if isAuth();
+      allow create, update: if isSelf(uid)
+        && request.resource.data.uid == uid;
+      allow delete: if isSelf(uid);
+    }
+
+    match /accountDeletionRequests/{uid} {
+      allow read, delete: if isSelf(uid);
+      allow create: if isSelf(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.createdAt is timestamp;
+      allow update: if false;
+    }
+
     match /friendRequests/{requestId} {
       allow read: if isAuth()
-        && (resource.data.fromUserId == request.auth.uid
-          || resource.data.toUserId == request.auth.uid);
+        && (
+          friendRequestSender(resource.data) == authUid()
+          || friendRequestReceiver(resource.data) == authUid()
+        );
 
       allow create: if isAuth()
-        && request.resource.data.fromUserId == request.auth.uid
-        && request.resource.data.toUserId is string
-        && request.resource.data.toUserId != request.auth.uid
+        && friendRequestSender(request.resource.data) == authUid()
+        && friendRequestReceiver(request.resource.data) is string
+        && friendRequestReceiver(request.resource.data) != authUid()
+        && requestId == requestDocId(friendRequestSender(request.resource.data), friendRequestReceiver(request.resource.data))
+        && (!request.resource.data.keys().hasAny(['requestId']) || request.resource.data.requestId == requestId)
         && request.resource.data.status == 'pending'
-        && request.resource.data.source in ['manual', 'contacts']
-        && request.resource.data.respondedAt == null;
+        && request.resource.data.source in ['manual', 'contacts', 'search']
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && (!request.resource.data.keys().hasAny(['respondedAt']) || request.resource.data.respondedAt == null)
+        && exists(/databases/$(database)/documents/publicUsers/$(friendRequestReceiver(request.resource.data)))
+        && !activeFriendship(friendRequestSender(request.resource.data), friendRequestReceiver(request.resource.data))
+        && !hasPendingRequest(friendRequestReceiver(request.resource.data), friendRequestSender(request.resource.data))
+        && !hasBlock(friendRequestSender(request.resource.data), friendRequestReceiver(request.resource.data))
+        && !hasBlock(friendRequestReceiver(request.resource.data), friendRequestSender(request.resource.data));
 
-      allow update: if isAuth() && (
-        (
-          resource.data.toUserId == request.auth.uid
-          && resource.data.status == 'pending'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
-          && request.resource.data.status in ['accepted', 'rejected']
-        )
-        ||
-        (
-          resource.data.fromUserId == request.auth.uid
-          && resource.data.status == 'pending'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
-          && request.resource.data.status == 'cancelled'
-        )
-      );
+      allow update: if isAuth()
+        && friendRequestSender(request.resource.data) == friendRequestSender(resource.data)
+        && friendRequestReceiver(request.resource.data) == friendRequestReceiver(resource.data)
+        && (!request.resource.data.keys().hasAny(['requestId']) || request.resource.data.requestId == requestId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'respondedAt'])
+        && (
+          (
+            friendRequestSender(resource.data) == authUid()
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'canceled'
+          )
+          ||
+          (
+            friendRequestReceiver(resource.data) == authUid()
+            && resource.data.status == 'pending'
+            && request.resource.data.status in ['accepted', 'rejected']
+            && request.resource.data.respondedAt is timestamp
+          )
+        );
 
-      allow delete: if false;
+      allow delete: if isDeletingOwnAccount()
+        && (
+          friendRequestSender(resource.data) == authUid()
+          || friendRequestReceiver(resource.data) == authUid()
+        );
     }
 
-    // runs/{runId} ────────────────────────────────────────
-    match /runs/{runId} {
-      // 본인 런 기록만 읽기/쓰기
-      allow read: if isAuth() && request.auth.uid == resource.data.userId;
-      allow create: if isAuth() && request.auth.uid == request.resource.data.userId;
-      allow update: if isAuth() && request.auth.uid == resource.data.userId;
-      allow delete: if isAuth() && request.auth.uid == resource.data.userId;
-    }
+    match /friendships/{friendshipId} {
+      allow read: if isFriendshipParticipant(resource.data);
 
-    // matePosts/{postId} ──────────────────────────────────
-    match /matePosts/{postId} {
-      // 로그인 사용자 누구나 읽기 가능
-      allow read: if isAuth();
-      // 본인만 새 글 작성 (authorId == 요청자 uid)
       allow create: if isAuth()
-        && request.resource.data.authorId == request.auth.uid
+        && isValidUserPair(request.resource.data)
+        && request.resource.data.id == friendshipId
+        && request.resource.data.friendshipId == friendshipId
+        && friendshipId == friendshipDocId(request.resource.data.users[0], request.resource.data.users[1])
+        && isFriendshipParticipant(request.resource.data)
+        && request.resource.data.status in ['active', 'removed'];
+
+      allow update: if isAuth()
+        && isFriendshipParticipant(resource.data)
+        && isValidUserPair(request.resource.data)
+        && request.resource.data.users == resource.data.users
+        && request.resource.data.id == friendshipId
+        && request.resource.data.friendshipId == friendshipId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'removedBy', 'removedAt'])
+        && request.resource.data.status in ['active', 'removed'];
+
+      allow delete: if isDeletingOwnAccount() && isFriendshipParticipant(resource.data);
+    }
+
+    match /follows/{followId} {
+      allow read: if isAuth()
+        && (
+          resource.data.followerId == authUid()
+          || resource.data.followingId == authUid()
+        );
+
+      allow create, update: if isAuth()
+        && request.resource.data.id == followId
+        && request.resource.data.followerId is string
+        && request.resource.data.followingId is string
+        && request.resource.data.followerId != request.resource.data.followingId
+        && followId == request.resource.data.followerId + '_' + request.resource.data.followingId
+        && request.resource.data.isActive is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.followerId == authUid();
+
+      allow delete: if isAuth() && (
+        resource.data.followerId == authUid()
+        || (resource.data.followingId == authUid() && isDeletingOwnAccount())
+      );
+    }
+
+    match /blocks/{blockId} {
+      allow read: if isAuth()
+        && (
+          resource.data.blockerId == authUid()
+          || resource.data.blockedId == authUid()
+        );
+
+      allow create: if isAuth()
+        && request.resource.data.blockerId == authUid()
+        && request.resource.data.blockedId is string
+        && request.resource.data.blockedId != authUid()
+        && request.resource.data.createdAt is timestamp
+        && blockId == blockDocId(request.resource.data.blockerId, request.resource.data.blockedId)
+        && request.resource.data.id == blockId;
+
+      allow delete: if isAuth() && (
+        resource.data.blockerId == authUid()
+        || (resource.data.blockedId == authUid() && isDeletingOwnAccount())
+      );
+      allow update: if false;
+    }
+
+    match /runs/{runId} {
+      allow read: if isAuth() && authUid() == resource.data.userId;
+      allow create: if isAuth() && authUid() == request.resource.data.userId;
+      allow update: if isAuth() && authUid() == resource.data.userId;
+      allow delete: if isAuth() && authUid() == resource.data.userId;
+    }
+
+    match /matePosts/{postId} {
+      allow read: if isAuth();
+      allow create: if isAuth()
+        && request.resource.data.authorId == authUid()
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 120
@@ -109,51 +261,37 @@ service cloud.firestore {
         && request.resource.data.currentMembers >= 1
         && request.resource.data.currentMembers <= request.resource.data.maxMembers
         && request.resource.data.joinedUserIds is list;
-      // 참여/탈퇴 (joinedUserIds, currentMembers 만 수정 가능)
-      // 또는 작성자 본인이 전체 수정
       allow update: if isAuth() && (
         isAuthor()
-        || (
-          request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['joinedUserIds', 'currentMembers'])
-        )
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['joinedUserIds', 'currentMembers'])
       );
       allow delete: if isAuthor();
     }
 
-    // feedPosts/{postId} ──────────────────────────────────
     match /feedPosts/{postId} {
-      // 로그인 사용자 누구나 읽기 가능
       allow read: if isAuth();
-      // 본인만 새 피드 작성
       allow create: if isAuth()
-        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == authUid()
         && request.resource.data.content is string
         && request.resource.data.content.size() <= 1000;
-      // 좋아요(likedUserIds)와 댓글(comments) 만 타인이 수정 가능
-      // 작성자 본인은 전체 수정 가능
       allow update: if isAuth() && (
         isAuthor()
-        || request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['likedUserIds', 'comments'])
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedUserIds', 'comments'])
       );
       allow delete: if isAuthor();
     }
 
-    // reports/{reportId} ──────────────────────────────────
-    // 사용자가 신고를 제출할 수 있고, 읽기는 본인 신고만 가능
     match /reports/{reportId} {
-      allow read: if isAuth() && request.auth.uid == resource.data.reporterId;
+      allow read: if isAuth() && authUid() == resource.data.reporterId;
       allow create: if isAuth()
-        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reporterId == authUid()
         && request.resource.data.targetType in ['feedPost', 'matePost', 'user']
         && request.resource.data.reason is string
         && request.resource.data.reason.size() <= 500;
-      // 신고는 수정/삭제 불가 (관리자만 처리)
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isAuth() && authUid() == resource.data.reporterId;
     }
 
-    // 그 외 모든 컬렉션은 접근 차단
     match /{document=**} {
       allow read, write: if false;
     }

@@ -3,6 +3,20 @@ import Combine
 import AVFoundation
 import CoreLocation
 
+enum RunSessionFinishError: LocalizedError {
+    case noActiveRecord
+    case insufficientData
+
+    var errorDescription: String? {
+        switch self {
+        case .noActiveRecord:
+            return "러닝 기록을 저장할 데이터가 없습니다."
+        case .insufficientData:
+            return "러닝 기록을 저장하지 못했어요. 다시 시도해주세요."
+        }
+    }
+}
+
 /// 러닝 세션 매니저 — 전체 러닝 라이프사이클 관리
 @MainActor
 final class RunSessionManager: ObservableObject {
@@ -86,6 +100,7 @@ final class RunSessionManager: ObservableObject {
 
     private func syncBLEZone(_ status: PaceMakerEngine.PaceStatus) {
         guard let ble = bleService, ble.isConnected else { return }
+        guard locationService?.isPaceReliable ?? true else { return }
         ble.setZone(deviceZone(for: status))
     }
 
@@ -153,60 +168,71 @@ final class RunSessionManager: ObservableObject {
         bleService?.turnLaserOn()
     }
 
+    @discardableResult
     func finishRun(
         routePoints: [RoutePoint],
         totalDistance: Double,
         averageCadenceSpm: Int? = nil,
         averageHeartRateBpm: Int? = nil
-    ) {
-        guard runState == .running || runState == .paused else { return }
+    ) throws -> RunRecord {
+        guard runState == .running || runState == .paused || runState == .finished else {
+            throw RunSessionFinishError.noActiveRecord
+        }
 
-        stopTimer()
-        paceMaker.stop()
-        // BLE: 러닝 종료 (레이저 OFF + WAIT 모드)
-        bleService?.stopRun()
+        if runState == .running || runState == .paused {
+            stopTimer()
+            paceMaker.stop()
+            bleService?.stopRun()
+            runState = .finished
 
-        runState = .finished
-        // ... (기존 저장 로직 유지)
-
-        if var record = currentRecord {
-            record.endDate = Date()
-            // 비정상 속도 RoutePoint 제거 (페이스 1분~20분/km 범위: 0.834~15.0 m/s)
-            let validRoutePoints = routePoints.filter {
-                $0.speed == 0 ||  // 정지 포인트는 경로 유지 (속도만 무시)
-                ($0.speed >= 0.834 && $0.speed <= 15.0)
+            guard var record = currentRecord else {
+                Task { [weak self] in await self?.healthKit.discardWorkout() }
+                throw RunSessionFinishError.noActiveRecord
             }
-            record.routePoints = validRoutePoints
+
+            record.endDate = Date()
+            record.routePoints = sanitizedRoutePoints(routePoints)
             record.totalDistanceMeters = totalDistance
             record.elapsedSeconds = elapsedSeconds
             record.averageCadenceSpm = averageCadenceSpm
             record.averageHeartRateBpm = averageHeartRateBpm
+            applyDerivedMetrics(to: &record)
             currentRecord = record
-
-            // 최소 거리 이상 달렸을 때만 저장
-            #if targetEnvironment(simulator)
-            let minDistance: Double = 10  // 시뮬레이터에서는 10m
-            #else
-            let minDistance: Double = 10
-            #endif
-            if totalDistance >= minDistance {
-                savedRecords.insert(record, at: 0)
-                saveRecords()
-
-                // HealthKit에 운동 저장
-                Task { [weak self] in
-                    await self?.healthKit.endWorkout(
-                        totalDistance: totalDistance,
-                        totalDuration: self?.elapsedSeconds ?? 0
-                    )
-                }
-            } else {
-                Task { [weak self] in await self?.healthKit.discardWorkout() }
-            }
-        } else {
-            // currentRecord가 없으면 HealthKit 운동도 폐기
-            Task { [weak self] in await self?.healthKit.discardWorkout() }
         }
+
+        guard let record = currentRecord else {
+            Task { [weak self] in await self?.healthKit.discardWorkout() }
+            throw RunSessionFinishError.noActiveRecord
+        }
+
+        #if targetEnvironment(simulator)
+        let minDistance: Double = 10
+        #else
+        let minDistance: Double = 10
+        #endif
+        guard record.totalDistanceMeters >= minDistance else {
+            Task { [weak self] in await self?.healthKit.discardWorkout() }
+            throw RunSessionFinishError.insufficientData
+        }
+
+        if !savedRecords.contains(where: { $0.id == record.id }) {
+            savedRecords.insert(record, at: 0)
+            do {
+                try saveRecordsOrThrow()
+            } catch {
+                savedRecords.removeAll { $0.id == record.id }
+                throw error
+            }
+
+            Task { [weak self] in
+                await self?.healthKit.endWorkout(
+                    totalDistance: record.totalDistanceMeters,
+                    totalDuration: self?.elapsedSeconds ?? 0
+                )
+            }
+        }
+
+        return record
     }
 
     func updateTargetPace(_ target: PaceTarget) {
@@ -241,7 +267,9 @@ final class RunSessionManager: ObservableObject {
     // MARK: - 페이스메이커 업데이트 (LocationService에서 호출)
 
     func updatePace(distance: Double) {
-        paceMaker.update(actualDistanceMeters: distance, elapsedSeconds: elapsedSeconds)
+        if locationService?.isPaceReliable ?? true {
+            paceMaker.update(actualDistanceMeters: distance, elapsedSeconds: elapsedSeconds)
+        }
 
         // 인터벌 모드: 구간 전환 체크
         if let interval = intervalProgram, !interval.segments.isEmpty {
@@ -336,8 +364,9 @@ final class RunSessionManager: ObservableObject {
         let accuracy = location?.horizontalAccuracy ?? -1
         let course = location?.course ?? -1
         let speed = locationService.currentSpeed
+        let isPaceReliable = locationService.isPaceReliable
         let isCoordinateValid = latitude.isFinite && longitude.isFinite && accuracy > 0
-        let isSpeedValid = speed.isFinite && speed >= 0
+        let isSpeedValid = isPaceReliable && speed.isFinite && speed > 0
         let isCourseValid = course.isFinite && course >= 0
         let isStaleFix = location.map { Date().timeIntervalSince($0.timestamp) > 5 } ?? false
 
@@ -349,7 +378,7 @@ final class RunSessionManager: ObservableObject {
 
         let distanceMeters = clampedUInt16(locationService.totalDistanceMeters)
         let elapsedSecondsValue = clampedUInt16(elapsedSeconds)
-        let speedCentimetersPerSecond = clampedUInt16(speed * 100)
+        let speedCentimetersPerSecond = isSpeedValid ? clampedUInt16(speed * 100) : 0
 
         let gpsPayload = PhoneGPSPayload(
             latitudeE7: scaledCoordinate(latitude),
@@ -364,7 +393,7 @@ final class RunSessionManager: ObservableObject {
 
         let isRunActive = runState == .running
         let servoAngle = appCalculatedServoAngle(ble: ble)
-        if isRunActive, abs(ble.servoAngle - Int(servoAngle)) >= 1 {
+        if isRunActive, isPaceReliable, abs(ble.servoAngle - Int(servoAngle)) >= 1 {
             ble.setServoAngle(Int(servoAngle))
         }
 
@@ -377,13 +406,13 @@ final class RunSessionManager: ObservableObject {
 
         let controlPayload = PhoneControlPayload(
             speedCentimetersPerSecond: speedCentimetersPerSecond,
-            paceSecondsPerKm: clampedUInt16(locationService.currentPaceSecondsPerKm),
+            paceSecondsPerKm: isPaceReliable ? clampedUInt16(locationService.controlPaceSecondsPerKm) : 0,
             targetPaceSecondsPerKm: clampedUInt16(paceMaker.target?.totalSecondsPerKm ?? 0),
             distanceMeters: distanceMeters,
             elapsedSeconds: elapsedSecondsValue,
             gapCentimeters: clampedInt16(paceMaker.gapMeters * 100),
             servoAngleDegrees: servoAngle,
-            zone: isRunActive ? deviceZone(for: paceMaker.paceStatus) : .none,
+            zone: isRunActive && isPaceReliable ? deviceZone(for: paceMaker.paceStatus) : .none,
             flags: controlFlags
         )
 
@@ -440,11 +469,15 @@ final class RunSessionManager: ObservableObject {
 
     private func saveRecords() {
         do {
-            let data = try JSONEncoder().encode(savedRecords)
-            try data.write(to: savePath, options: .atomic)
+            try saveRecordsOrThrow()
         } catch {
             print("기록 저장 실패: \(error)")
         }
+    }
+
+    private func saveRecordsOrThrow() throws {
+        let data = try JSONEncoder().encode(savedRecords)
+        try data.write(to: savePath, options: .atomic)
     }
 
     private func loadRecords() {
@@ -452,13 +485,16 @@ final class RunSessionManager: ObservableObject {
         do {
             let data = try Data(contentsOf: savePath)
             var records = try JSONDecoder().decode([RunRecord].self, from: data)
-            // 기존 기록의 비정상 RoutePoint 정리 (페이스 1분~20분/km 범위 외 속도)
+            // 기존 기록의 비정상 RoutePoint와 누락된 품질 메타데이터 정리
             var needsSave = false
             for i in records.indices {
-                let original = records[i].routePoints
-                let cleaned = original.filter { $0.speed == 0 || ($0.speed >= 0.834 && $0.speed <= 15.0) }
-                if cleaned.count != original.count {
+                let cleaned = sanitizedRoutePoints(records[i].routePoints)
+                if cleaned.count != records[i].routePoints.count {
                     records[i].routePoints = cleaned
+                    needsSave = true
+                }
+
+                if applyDerivedMetrics(to: &records[i]) {
                     needsSave = true
                 }
             }
@@ -505,30 +541,69 @@ final class RunSessionManager: ObservableObject {
     }
 }
 
-@MainActor
-final class VoiceGuideService: NSObject, ObservableObject {
+    private func sanitizedRoutePoints(_ routePoints: [RoutePoint]) -> [RoutePoint] {
+        routePoints.filter {
+            $0.speed == 0 || ($0.speed >= 0.834 && $0.speed <= RunMetricsAnalyzer.maxReliableSpeedMps)
+        }
+    }
 
-    private enum PaceAlertDirection {
+    @discardableResult
+    private func applyDerivedMetrics(to record: inout RunRecord) -> Bool {
+        let analysis = RunMetricsAnalyzer.analyze(record: record)
+        let caloriesChanged = record.caloriesEstimatedKcal == nil
+            || abs((record.caloriesEstimatedKcal ?? 0) - analysis.caloriesEstimatedKcal) > 0.5
+        let qualityChanged = record.dataQuality != analysis.dataQuality
+
+        record.caloriesEstimatedKcal = analysis.caloriesEstimatedKcal
+        record.dataQuality = analysis.dataQuality
+        return caloriesChanged || qualityChanged
+    }
+
+@MainActor
+final class VoiceGuideService: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+
+    private enum PaceAlertDirection: Hashable {
         case ahead
         case behind
+    }
+
+    private enum VoiceAlertKind: Hashable {
+        case tooSlow
+        case tooFast
+        case backOnTarget
+        case split
+        case gap(PaceAlertDirection)
     }
 
     private let synthesizer = AVSpeechSynthesizer()
     private var lastDistanceCheckpoint = 0
     private var lastPaceAlertDate: Date?
     private var lastPaceAlertDirection: PaceAlertDirection?
+    private var lastAlertDates: [VoiceAlertKind: Date] = [:]
+    private var sustainedDeviationStart: Date?
+    private var sustainedDeviationDirection: PaceAlertDirection?
+    private var wasOutsideTargetRange = false
+    private var pendingMessages: [String] = []
+    private let alertCooldownSeconds: TimeInterval = 30
 
     override init() {
         super.init()
+        synthesizer.delegate = self
     }
 
     func reset() {
         lastDistanceCheckpoint = 0
         lastPaceAlertDate = nil
         lastPaceAlertDirection = nil
+        lastAlertDates.removeAll()
+        sustainedDeviationStart = nil
+        sustainedDeviationDirection = nil
+        wasOutsideTargetRange = false
+        pendingMessages.removeAll()
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
         }
+        deactivateAudioSession()
     }
 
     func announceRunStart() {
@@ -562,6 +637,7 @@ final class VoiceGuideService: NSObject, ObservableObject {
         lastDistanceCheckpoint = 0
         lastPaceAlertDate = nil
         lastPaceAlertDirection = nil
+        lastAlertDates.removeAll()
     }
 
     func announceGoalReached() {
@@ -592,7 +668,61 @@ final class VoiceGuideService: NSObject, ObservableObject {
         lastDistanceCheckpoint = checkpoint
         let announcedDistance = Double(checkpoint) * interval
         let distanceText = spokenDistanceText(for: announcedDistance)
+        guard canSpeak(.split, at: Date()) else { return }
         speak(distanceAnnouncement(distanceText: distanceText, paceSecondsPerKm: currentPaceSecondsPerKm))
+    }
+
+    func handlePaceGuidanceUpdate(currentPaceSecondsPerKm: Double, targetPaceSecondsPerKm: Double) {
+        guard isEnabled,
+              currentPaceSecondsPerKm > 0,
+              currentPaceSecondsPerKm.isFinite,
+              targetPaceSecondsPerKm > 0,
+              targetPaceSecondsPerKm.isFinite else { return }
+
+        let now = Date()
+        let delta = currentPaceSecondsPerKm - targetPaceSecondsPerKm
+
+        if abs(delta) <= 5 {
+            sustainedDeviationStart = nil
+            sustainedDeviationDirection = nil
+            if wasOutsideTargetRange, canSpeak(.backOnTarget, at: now) {
+                speak(localizedMessage(
+                    korean: "좋아요. 이 페이스를 유지하세요.",
+                    english: "Good. Hold this pace."
+                ))
+            }
+            wasOutsideTargetRange = false
+            return
+        }
+
+        guard abs(delta) > 10 else { return }
+
+        let direction: PaceAlertDirection = delta > 0 ? .behind : .ahead
+        if sustainedDeviationDirection != direction {
+            sustainedDeviationDirection = direction
+            sustainedDeviationStart = now
+            return
+        }
+
+        guard let sustainedDeviationStart,
+              now.timeIntervalSince(sustainedDeviationStart) >= 10 else { return }
+
+        switch direction {
+        case .behind:
+            guard canSpeak(.tooSlow, at: now) else { return }
+            wasOutsideTargetRange = true
+            speak(localizedMessage(
+                korean: "조금만 페이스를 올리세요.",
+                english: "Pick it up slightly."
+            ))
+        case .ahead:
+            guard canSpeak(.tooFast, at: now) else { return }
+            wasOutsideTargetRange = true
+            speak(localizedMessage(
+                korean: "조금만 힘을 빼세요.",
+                english: "Ease off slightly."
+            ))
+        }
     }
 
     func handleGapUpdate(gapMeters: Double) {
@@ -608,27 +738,26 @@ final class VoiceGuideService: NSObject, ObservableObject {
         if direction != lastPaceAlertDirection {
             shouldSpeak = true
         } else if let lastPaceAlertDate {
-            shouldSpeak = now.timeIntervalSince(lastPaceAlertDate) >= 18
+            shouldSpeak = now.timeIntervalSince(lastPaceAlertDate) >= alertCooldownSeconds
         } else {
             shouldSpeak = true
         }
 
-        guard shouldSpeak else { return }
+        guard shouldSpeak, canSpeak(.gap(direction), at: now) else { return }
 
         lastPaceAlertDate = now
         lastPaceAlertDirection = direction
 
-        let meters = Int(abs(gapMeters).rounded())
         switch direction {
         case .ahead:
             speak(localizedMessage(
-                korean: "목표보다 \(meters)미터 앞서고 있습니다.",
-                english: "You are \(meters) meters ahead of target pace."
+                korean: "조금만 힘을 빼세요.",
+                english: "Ease off slightly."
             ))
         case .behind:
             speak(localizedMessage(
-                korean: "목표보다 \(meters)미터 뒤처지고 있습니다.",
-                english: "You are \(meters) meters behind target pace."
+                korean: "조금만 페이스를 올리세요.",
+                english: "Pick it up slightly."
             ))
         }
     }
@@ -659,14 +788,34 @@ final class VoiceGuideService: NSObject, ObservableObject {
         try? session.setActive(true)
     }
 
+    private func deactivateAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func canSpeak(_ kind: VoiceAlertKind, at now: Date) -> Bool {
+        if let lastDate = lastAlertDates[kind], now.timeIntervalSince(lastDate) < alertCooldownSeconds {
+            return false
+        }
+        lastAlertDates[kind] = now
+        return true
+    }
+
     private func speak(_ message: String) {
         guard !message.isEmpty else { return }
 
-        configureAudioSession()
-
         if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .word)
+            if pendingMessages.last != message, pendingMessages.count < 3 {
+                pendingMessages.append(message)
+            }
+            return
         }
+
+        speakNow(message)
+    }
+
+    private func speakNow(_ message: String) {
+        configureAudioSession()
 
         let utterance = AVSpeechUtterance(string: message)
         let voice = preferredVoice()
@@ -675,6 +824,28 @@ final class VoiceGuideService: NSObject, ObservableObject {
         utterance.pitchMultiplier = 0.98
         utterance.volume = 0.9
         synthesizer.speak(utterance)
+    }
+
+    private func handleSpeechFinished() {
+        if pendingMessages.isEmpty {
+            deactivateAudioSession()
+            return
+        }
+
+        let nextMessage = pendingMessages.removeFirst()
+        speakNow(nextMessage)
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            self?.handleSpeechFinished()
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            self?.handleSpeechFinished()
+        }
     }
 
     private func distanceAnnouncement(distanceText: String, paceSecondsPerKm: Double) -> String {

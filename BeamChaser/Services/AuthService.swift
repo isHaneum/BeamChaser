@@ -9,20 +9,29 @@ import GoogleSignIn
 #endif
 import UIKit
 
-/// Apple 로그인 인증 서비스
+enum AuthSignInProvider: String {
+    case apple
+    case google
+}
+
+/// Apple / Google 로그인 인증 서비스
 @MainActor
 final class AuthService: ObservableObject {
 
     @Published var isSignedIn = false
-    @Published var isAuthenticating = false
+    @Published private(set) var isAuthenticating = false
+    @Published private(set) var selectedProvider: AuthSignInProvider?
     @Published var userName: String?
     @Published var userEmail: String?
     @Published var userIdentifier: String?
     @Published var signInError: String?
 
-    private let userDefaultsKey = "apple_user_id"
+    private let authUserDefaultsKey = "auth_user_id"
+    private let appleUserDefaultsKey = "apple_user_id"
+    private let authProviderDefaultsKey = "auth_provider"
     private var currentNonce: String?
     private var firebaseAuthHandle: AuthStateDidChangeListenerHandle?
+    weak var bleService: BLEService?
 
     var isGoogleSignInAvailable: Bool {
         #if canImport(GoogleSignIn)
@@ -32,15 +41,41 @@ final class AuthService: ObservableObject {
         #endif
     }
 
+    var isAppleSignInAvailable: Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        return true
+        #endif
+    }
+
+    var appleSignInAvailabilityMessage: String? {
+        guard !isAppleSignInAvailable else { return nil }
+        return AppLanguage.current.text(
+            "시뮬레이터에서는 Apple 로그인을 사용할 수 없습니다. 실제 iPhone에서 테스트해주세요.",
+            "Apple sign-in isn't available in the simulator. Test on a physical iPhone."
+        )
+    }
+
     init() {
-        // UserDefaults 기반 Apple 로그인 복원
-        if let savedID = UserDefaults.standard.string(forKey: userDefaultsKey) {
-            userIdentifier = savedID
+        let firebaseUser = FirebaseApp.app() != nil ? Auth.auth().currentUser : nil
+        let savedProvider = savedAuthProvider()
+        let restoredProvider = savedProvider ?? firebaseUser.flatMap(Self.provider(from:))
+
+        if let firebaseUser {
+            restoreFirebaseSession(firebaseUser, provider: restoredProvider)
+        } else if (savedProvider == nil || savedProvider == .apple),
+                  let savedAppleID = UserDefaults.standard.string(forKey: appleUserDefaultsKey) {
+            // Legacy Apple-only restore. Google sessions must come from Firebase so a saved
+            // Firebase UID is never checked against Apple credential state.
+            userIdentifier = savedAppleID
             isSignedIn = true
             loadSavedProfile()
+            persistLocalSession(userId: savedAppleID, provider: .apple)
+
             #if !targetEnvironment(simulator)
             Task {
-                await refreshAppleCredentialState(for: savedID)
+                await refreshAppleCredentialState(for: savedAppleID)
             }
             #endif
         }
@@ -52,21 +87,7 @@ final class AuthService: ObservableObject {
                 guard let self else { return }
                 Task { @MainActor in
                     if let user {
-                        if !self.isSignedIn {
-                            // Firebase는 로그인되어 있지만 AuthService는 모르는 상태 → 동기화
-                            self.isSignedIn = true
-                            if self.userName == nil {
-                                self.userName = user.displayName
-                                    ?? UserDefaults.standard.string(forKey: "apple_user_name")
-                            }
-                            if self.userEmail == nil {
-                                self.userEmail = user.email
-                                    ?? UserDefaults.standard.string(forKey: "apple_user_email")
-                            }
-                            if self.userIdentifier == nil {
-                                self.userIdentifier = user.uid
-                            }
-                        }
+                        self.restoreFirebaseSession(user, provider: Self.provider(from: user) ?? self.savedAuthProvider())
                     } else {
                         // Firebase도 로그아웃 → AuthService도 로그아웃
                         if self.isSignedIn {
@@ -87,10 +108,13 @@ final class AuthService: ObservableObject {
     // MARK: - Apple 로그인 요청 준비
 
     func prepareAppleSignInRequest(_ request: ASAuthorizationAppleIDRequest) {
+        guard isAppleSignInAvailable else {
+            signInError = appleSignInAvailabilityMessage
+            return
+        }
         let nonce = Self.randomNonceString()
         currentNonce = nonce
-        signInError = nil
-        isAuthenticating = true
+        beginSignIn(provider: .apple)
         request.requestedScopes = [.fullName, .email]
         request.nonce = Self.sha256(nonce)
     }
@@ -101,7 +125,7 @@ final class AuthService: ObservableObject {
         _ result: Result<ASAuthorization, Error>,
         backendService: BackendService? = nil
     ) async {
-        defer { isAuthenticating = false }
+        defer { resetTransientAuthState(clearError: false) }
         switch result {
         case .success(let auth):
             guard let credential = auth.credential as? ASAuthorizationAppleIDCredential else {
@@ -110,7 +134,8 @@ final class AuthService: ObservableObject {
             }
 
             userIdentifier = credential.user
-            UserDefaults.standard.set(credential.user, forKey: userDefaultsKey)
+            UserDefaults.standard.set(credential.user, forKey: appleUserDefaultsKey)
+            persistLocalSession(userId: credential.user, provider: .apple)
 
             let name = Self.displayName(from: credential.fullName)
             if !name.isEmpty {
@@ -152,8 +177,8 @@ final class AuthService: ObservableObject {
         case .failure(let error):
             let nsError = error as NSError
             // 1001 = 사용자가 취소, 1000 = 시뮬레이터 미지원
-            if nsError.code == 1001 {
-                signInError = nil // 사용자 취소는 에러 표시 안 함
+            if Self.isAppleCancellation(error) {
+                signInError = nil
             } else if nsError.code == 1000 {
                 #if targetEnvironment(simulator)
                 signInError = AppLanguage.current.text("시뮬레이터에서는 Apple 로그인을 사용할 수 없습니다. 실제 기기에서 테스트해주세요.", "Apple sign-in is not available in the simulator. Test on a real device.")
@@ -170,12 +195,11 @@ final class AuthService: ObservableObject {
     // MARK: - Google 로그인
 
     func signInWithGoogle(backendService: BackendService? = nil) async {
-        signInError = nil
-        isAuthenticating = true
-        defer { isAuthenticating = false }
+        beginSignIn(provider: .google)
+        defer { resetTransientAuthState(clearError: false) }
 
         #if canImport(GoogleSignIn)
-        guard let presentingViewController = await Self.topViewController() else {
+        guard let presentingViewController = Self.topViewController() else {
             signInError = AppLanguage.current.text("Google 로그인 화면을 띄울 수 없습니다.", "Couldn't present the Google sign-in screen.")
             return
         }
@@ -228,7 +252,7 @@ final class AuthService: ObservableObject {
             userEmail = backendService.currentUser?.email ?? result.user.profile?.email
             // Google 로그인도 앱 재시작 후 UserDefaults로 복원 가능하도록 저장
             if let uid = backendService.userId {
-                UserDefaults.standard.set(uid, forKey: userDefaultsKey)
+                persistLocalSession(userId: uid, provider: .google)
             }
             if let name = userName {
                 UserDefaults.standard.set(name, forKey: "apple_user_name")
@@ -238,9 +262,8 @@ final class AuthService: ObservableObject {
             }
             isSignedIn = true
         } catch {
-            let nsError = error as NSError
             // -5 = 사용자가 취소(GIDSignInError.canceled), 취소는 에러 표시 안 함
-            if nsError.code == -5 {
+            if Self.isGoogleCancellation(error) {
                 signInError = nil
             } else {
                 signInError = AppLanguage.current.text("Google 로그인 실패: \(error.localizedDescription)", "Google sign-in failed: \(error.localizedDescription)")
@@ -259,17 +282,33 @@ final class AuthService: ObservableObject {
         } catch {
             signInError = AppLanguage.current.text("로그아웃 실패: \(error.localizedDescription)", "Sign-out failed: \(error.localizedDescription)")
         }
+        #if canImport(GoogleSignIn)
+        GIDSignIn.sharedInstance.signOut()
+        #endif
         clearLocalSession()
     }
 
     func clearLocalSession() {
+        bleService?.disconnect()
+        resetTransientAuthState()
         isSignedIn = false
         userIdentifier = nil
-        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: authUserDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: appleUserDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: authProviderDefaultsKey)
         UserDefaults.standard.removeObject(forKey: "apple_user_name")
         UserDefaults.standard.removeObject(forKey: "apple_user_email")
         userName = nil
         userEmail = nil
+    }
+
+    func resetTransientAuthState(clearError: Bool = true) {
+        isAuthenticating = false
+        selectedProvider = nil
+        currentNonce = nil
+        if clearError {
+            signInError = nil
+        }
     }
 
     // MARK: - 저장된 프로필 로드
@@ -280,6 +319,43 @@ final class AuthService: ObservableObject {
         }
         if userEmail == nil {
             userEmail = UserDefaults.standard.string(forKey: "apple_user_email")
+        }
+    }
+
+    private func beginSignIn(provider: AuthSignInProvider) {
+        signInError = nil
+        selectedProvider = provider
+        isAuthenticating = true
+    }
+
+    private func persistLocalSession(userId: String, provider: AuthSignInProvider) {
+        UserDefaults.standard.set(userId, forKey: authUserDefaultsKey)
+        UserDefaults.standard.set(provider.rawValue, forKey: authProviderDefaultsKey)
+        if provider == .google {
+            UserDefaults.standard.removeObject(forKey: appleUserDefaultsKey)
+        }
+    }
+
+    private func savedAuthProvider() -> AuthSignInProvider? {
+        guard let rawValue = UserDefaults.standard.string(forKey: authProviderDefaultsKey) else {
+            return nil
+        }
+        return AuthSignInProvider(rawValue: rawValue)
+    }
+
+    private func restoreFirebaseSession(_ user: User, provider: AuthSignInProvider?) {
+        isSignedIn = true
+        userIdentifier = user.uid
+        if userName == nil {
+            userName = user.displayName
+                ?? UserDefaults.standard.string(forKey: "apple_user_name")
+        }
+        if userEmail == nil {
+            userEmail = user.email
+                ?? UserDefaults.standard.string(forKey: "apple_user_email")
+        }
+        if let provider {
+            persistLocalSession(userId: user.uid, provider: provider)
         }
     }
 
@@ -366,6 +442,36 @@ final class AuthService: ObservableObject {
         }
 
         return clientID
+    }
+
+    private static func provider(from user: User) -> AuthSignInProvider? {
+        if user.providerData.contains(where: { $0.providerID == "google.com" }) {
+            return .google
+        }
+        if user.providerData.contains(where: { $0.providerID == "apple.com" }) {
+            return .apple
+        }
+        return nil
+    }
+
+    private static func isAppleCancellation(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == ASAuthorizationError.errorDomain,
+           nsError.code == ASAuthorizationError.Code.canceled.rawValue {
+            return true
+        }
+        return nsError.code == 1001
+            || nsError.localizedDescription.localizedCaseInsensitiveContains("cancel")
+    }
+
+    private static func isGoogleCancellation(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let message = nsError.localizedDescription.lowercased()
+        return nsError.code == -5
+            || message.contains("canceled")
+            || message.contains("cancelled")
+            || message.contains("user canceled")
+            || message.contains("sign-in flow")
     }
 
     @MainActor

@@ -59,7 +59,7 @@ struct OnboardingView: View {
 
     private let onboardingCardBackground = Color(red: 0.11, green: 0.11, blue: 0.13)
     private let onboardingCardHighlight = Color(red: 0.17, green: 0.17, blue: 0.20)
-    private let onboardingStroke = Color.white.opacity(0.10)
+    private let onboardingStroke = Color.white.opacity(0.18)
     private let onboardingTextPrimary = Color.white
     private let onboardingTextSecondary = Color(white: 0.84)
     private let onboardingTextMuted = Color(white: 0.62)
@@ -83,7 +83,7 @@ struct OnboardingView: View {
                             withAnimation(.easeInOut(duration: 0.3)) { page = .legal }
                         }
                         .font(RBFont.caption(13))
-                        .foregroundStyle(RBColor.textTertiary)
+                        .foregroundStyle(RBColor.textSecondary)
                         .padding(.trailing, 24)
                     }
                 }
@@ -508,7 +508,7 @@ struct OnboardingView: View {
         if required {
             Text(appLanguage.localized("필수"))
                 .font(RBFont.caption(9))
-                .foregroundStyle(.white)
+                .foregroundStyle(.black)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(RBColor.accent)
@@ -656,7 +656,7 @@ struct OnboardingView: View {
                 Spacer()
                 Button(buttonTitle) { onRequest() }
                     .font(RBFont.label(13))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(buttonEmphasis ? .black : onboardingTextPrimary)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
                     .background(
@@ -797,7 +797,7 @@ struct OnboardingView: View {
             } label: {
                 Text(appLanguage.localized("다음"))
                     .font(RBFont.label(17))
-                    .foregroundStyle(requiredConsentsGiven ? .white : onboardingTextMuted)
+                    .foregroundStyle(requiredConsentsGiven ? .black : onboardingTextMuted)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(
@@ -828,7 +828,7 @@ struct OnboardingView: View {
                         .font(.system(size: 14, weight: .bold))
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.black)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background(RBColor.accentGradient)

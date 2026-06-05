@@ -11,6 +11,7 @@ final class NowPlayingService: ObservableObject {
     @Published var isPlaying: Bool = false
 
     private let player = MPMusicPlayerController.systemMusicPlayer
+    private let infoCenter = MPNowPlayingInfoCenter.default()
     private var notificationTokens: [NSObjectProtocol] = []
     private var isActivated = false
 
@@ -36,11 +37,14 @@ final class NowPlayingService: ObservableObject {
 
     func refreshNowPlaying() {
         guard isActivated else { return }
+
         let item = player.nowPlayingItem
-        title = item?.title ?? ""
-        artist = item?.artist ?? ""
-        albumTitle = item?.albumTitle ?? ""
-        artworkImage = item?.artwork?.image(at: CGSize(width: 900, height: 900))
+        let info = infoCenter.nowPlayingInfo ?? [:]
+
+        title = resolvedText(primary: item?.title, from: info[MPMediaItemPropertyTitle])
+        artist = resolvedText(primary: item?.artist, from: info[MPMediaItemPropertyArtist])
+        albumTitle = resolvedText(primary: item?.albumTitle, from: info[MPMediaItemPropertyAlbumTitle])
+        artworkImage = resolvedArtwork(item: item, info: info)
         isPlaying = player.playbackState == .playing
     }
 
@@ -76,7 +80,8 @@ final class NowPlayingService: ObservableObject {
         let center = NotificationCenter.default
         let names: [Notification.Name] = [
             .MPMusicPlayerControllerNowPlayingItemDidChange,
-            .MPMusicPlayerControllerPlaybackStateDidChange
+            .MPMusicPlayerControllerPlaybackStateDidChange,
+            UIApplication.willEnterForegroundNotification
         ]
 
         notificationTokens = names.map { name in
@@ -86,5 +91,29 @@ final class NowPlayingService: ObservableObject {
                 }
             }
         }
+    }
+
+    private func resolvedText(primary: String?, from fallbackValue: Any?) -> String {
+        if let primary, !primary.isEmpty {
+            return primary
+        }
+
+        if let fallback = fallbackValue as? String {
+            return fallback
+        }
+
+        return ""
+    }
+
+    private func resolvedArtwork(item: MPMediaItem?, info: [String: Any]) -> UIImage? {
+        if let itemArtwork = item?.artwork?.image(at: CGSize(width: 900, height: 900)) {
+            return itemArtwork
+        }
+
+        if let fallbackArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork {
+            return fallbackArtwork.image(at: CGSize(width: 900, height: 900))
+        }
+
+        return nil
     }
 }

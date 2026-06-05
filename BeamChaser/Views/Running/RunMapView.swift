@@ -12,13 +12,19 @@ struct RunMapView: View {
 
     let presentationMode: PresentationMode
     let showsRecenterButton: Bool
+    let contentInsets: EdgeInsets
+    let interactionModes: MapInteractionModes
 
     init(
         presentationMode: PresentationMode = .follow,
-        showsRecenterButton: Bool = true
+        showsRecenterButton: Bool = true,
+        contentInsets: EdgeInsets = EdgeInsets(),
+        interactionModes: MapInteractionModes = .all
     ) {
         self.presentationMode = presentationMode
         self.showsRecenterButton = showsRecenterButton
+        self.contentInsets = contentInsets
+        self.interactionModes = interactionModes
     }
 
     #if targetEnvironment(simulator)
@@ -29,7 +35,7 @@ struct RunMapView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Map(position: $cameraPosition, interactionModes: .all) {
+            Map(position: $cameraPosition, interactionModes: interactionModes) {
                 // 사용자 현재 위치
                 #if targetEnvironment(simulator)
                 if let loc = locationService.currentLocation {
@@ -88,7 +94,7 @@ struct RunMapView: View {
                     }
                 }
             }
-            .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
+            .mapStyle(.standard(pointsOfInterest: .excludingAll))
             .mapControls {
                 MapCompass()
                 MapScaleView()
@@ -101,7 +107,7 @@ struct RunMapView: View {
             }
             .onReceive(locationService.$currentLocation) { _ in
                 guard presentationMode == .follow else { return }
-                updateCamera()
+                updateCamera(animated: false)
             }
             .onReceive(locationService.$routePoints) { _ in
                 guard presentationMode == .routeOverview else { return }
@@ -116,10 +122,14 @@ struct RunMapView: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(RBColor.accent)
                         .frame(width: 46, height: 46)
-                        .background(.ultraThinMaterial)
+                        .background(Color.black.opacity(0.82))
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                        )
                         .clipShape(Circle())
                 }
-                .padding(.top, 72)
+                .padding(.top, max(16, contentInsets.top + 12))
                 .padding(.trailing, 16)
             }
         }
@@ -153,7 +163,8 @@ struct RunMapView: View {
         headingDegrees = locationService.currentLocation?.course ?? 0
         #endif
 
-        let distance = max(180, min(520, max(locationService.totalDistanceMeters * 0.45, 240)))
+        let chromeMultiplier = 1 + min((contentInsets.top + contentInsets.bottom) / 520, 0.40)
+        let distance = max(180, min(580, max(locationService.totalDistanceMeters * 0.45, 240) * chromeMultiplier))
 
         let camera = MapCamera(
             centerCoordinate: locationService.currentLocation?.coordinate ?? fallbackCoordinate,
@@ -189,14 +200,40 @@ struct RunMapView: View {
 
         return MKCoordinateRegion(
             center: CLLocationCoordinate2D(
-                latitude: (minLat + maxLat) / 2,
+                latitude: ((minLat + maxLat) / 2) + latitudeBias,
                 longitude: (minLon + maxLon) / 2
             ),
             span: MKCoordinateSpan(
-                latitudeDelta: max((maxLat - minLat) * 1.7, 0.0035),
-                longitudeDelta: max((maxLon - minLon) * 1.7, 0.0035)
+                latitudeDelta: adjustedLatitudeDelta,
+                longitudeDelta: adjustedLongitudeDelta
             )
         )
+    }
+
+    private var adjustedLatitudeDelta: CLLocationDegrees {
+        let coordinates = locationService.routePoints.map(\.coordinate)
+        let latitudes = coordinates.map(\.latitude)
+        guard let minLat = latitudes.min(), let maxLat = latitudes.max() else { return 0.0035 }
+
+        let base = max((maxLat - minLat) * 1.7, 0.0035)
+        let verticalCoverage = min((contentInsets.top + contentInsets.bottom) / 520, 0.65)
+        return base * (1 + verticalCoverage * 0.65)
+    }
+
+    private var adjustedLongitudeDelta: CLLocationDegrees {
+        let coordinates = locationService.routePoints.map(\.coordinate)
+        let longitudes = coordinates.map(\.longitude)
+        guard let minLon = longitudes.min(), let maxLon = longitudes.max() else { return 0.0035 }
+
+        let base = max((maxLon - minLon) * 1.7, 0.0035)
+        let verticalCoverage = min((contentInsets.top + contentInsets.bottom) / 520, 0.65)
+        return base * (1 + verticalCoverage * 0.18)
+    }
+
+    private var latitudeBias: CLLocationDegrees {
+        let totalInsets = max(contentInsets.top + contentInsets.bottom, 1)
+        let direction = (contentInsets.bottom - contentInsets.top) / totalInsets
+        return adjustedLatitudeDelta * direction * 0.12
     }
 
     /// 목표 페이스 기준 레이저의 추정 위치

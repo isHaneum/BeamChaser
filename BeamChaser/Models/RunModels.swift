@@ -15,6 +15,8 @@ struct RunRecord: Identifiable, Codable {
     var intervalProgram: IntervalProgram?
     var averageCadenceSpm: Int? = nil
     var averageHeartRateBpm: Int? = nil
+    var caloriesEstimatedKcal: Double? = nil
+    var dataQuality: RunDataQuality? = nil
 
     var averagePaceSecondsPerKm: Double {
         guard totalDistanceMeters > 0 else { return 0 }
@@ -48,23 +50,23 @@ struct RunRecord: Identifiable, Codable {
     }
 
     var averageSpeedKmh: Double {
-        guard elapsedSeconds > 0 else { return 0 }
-        return distanceKm / (elapsedSeconds / 3600.0)
+        analyzedMetrics.averageSpeedKmh
     }
 
     var maxSpeedKmh: Double {
-        let maxSpeed = routePoints.map(\.speed).max() ?? 0
-        return maxSpeed * 3.6
+        analyzedMetrics.maxSpeedKmh ?? 0
     }
 
     var elevationGainMeters: Double {
-        guard routePoints.count >= 2 else { return 0 }
-        var gain: Double = 0
-        for index in 1..<routePoints.count {
-            let diff = routePoints[index].altitude - routePoints[index - 1].altitude
-            if diff > 0 { gain += diff }
-        }
-        return gain
+        analyzedMetrics.elevationGainMeters ?? 0
+    }
+
+    var reliableMaxSpeedKmh: Double? {
+        analyzedMetrics.maxSpeedKmh
+    }
+
+    var reliableElevationGainMeters: Double? {
+        analyzedMetrics.elevationGainMeters
     }
 
     var averageGPSAccuracyMeters: Double? {
@@ -77,8 +79,15 @@ struct RunRecord: Identifiable, Codable {
     }
 
     var estimatedCaloriesKcal: Double {
-        let hours = elapsedSeconds / 3600.0
-        return 10.0 * 70.0 * hours
+        analyzedMetrics.caloriesEstimatedKcal
+    }
+
+    var resolvedDataQuality: RunDataQuality {
+        analyzedMetrics.dataQuality
+    }
+
+    var analyzedMetrics: RunMetricAnalysis {
+        RunMetricsAnalyzer.analyze(record: self)
     }
 
     var goalDeltaSeconds: Int? {
@@ -186,9 +195,28 @@ struct RoutePoint: Codable {
     let timestamp: Date
     let speed: Double          // m/s
     let horizontalAccuracy: Double
+    let verticalAccuracy: Double?
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    init(
+        latitude: Double,
+        longitude: Double,
+        altitude: Double,
+        timestamp: Date,
+        speed: Double,
+        horizontalAccuracy: Double,
+        verticalAccuracy: Double?
+    ) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.altitude = altitude
+        self.timestamp = timestamp
+        self.speed = speed
+        self.horizontalAccuracy = horizontalAccuracy
+        self.verticalAccuracy = verticalAccuracy
     }
 
     init(from location: CLLocation) {
@@ -198,6 +226,7 @@ struct RoutePoint: Codable {
         self.timestamp = location.timestamp
         self.speed = max(0, location.speed)
         self.horizontalAccuracy = location.horizontalAccuracy
+        self.verticalAccuracy = location.verticalAccuracy
     }
 }
 

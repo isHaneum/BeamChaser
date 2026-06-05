@@ -6,6 +6,7 @@ struct BackgroundEditScreen: View {
     @Binding var backgroundOption: ShareBackgroundOption
     @Binding var selectedPhotoItem: PhotosPickerItem?
     @Binding var selectedPhotoImage: UIImage?
+    let onApply: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -19,10 +20,14 @@ struct BackgroundEditScreen: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.84))
+                        .foregroundStyle(Color.white.opacity(0.88))
                         .frame(width: 38, height: 38)
-                        .background(Color.white)
-                        .clipShape(Circle())
+                        .background(Color.black.opacity(0.72))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
@@ -30,17 +35,21 @@ struct BackgroundEditScreen: View {
 
                 Text(appLanguage.text("배경 편집", "Background"))
                     .font(.system(size: 20, weight: .bold, design: .default))
-                    .foregroundStyle(Color.black.opacity(0.88))
+                    .foregroundStyle(Color.white.opacity(0.92))
 
                 Spacer()
 
                 Button {
+                    onApply()
                     dismiss()
                 } label: {
-                    Text(appLanguage.text("완료", "Done"))
+                    Text(appLanguage.text("공유", "Share"))
                         .font(.system(size: 15, weight: .bold, design: .default))
-                        .foregroundStyle(sharePrimaryColor)
-                        .frame(width: 46, alignment: .trailing)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 14)
+                        .frame(height: 38)
+                        .background(sharePrimaryColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -50,6 +59,7 @@ struct BackgroundEditScreen: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVGrid(columns: columns, spacing: 12) {
+                    backgroundTile(option: .map)
                     backgroundTile(option: .white)
                     photoTile
                     backgroundTile(option: .gradient)
@@ -59,7 +69,7 @@ struct BackgroundEditScreen: View {
                 .padding(.bottom, 24)
             }
         }
-        .background(Color(red: 0.96, green: 0.96, blue: 0.95).ignoresSafeArea())
+        .background(RBColor.bg.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
     }
 
@@ -72,19 +82,19 @@ struct BackgroundEditScreen: View {
             VStack(alignment: .leading, spacing: 12) {
                 backgroundPreview(for: option)
                     .frame(height: 150)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 Text(option.title(appLanguage))
                     .font(.system(size: 15, weight: .medium, design: .default))
-                    .foregroundStyle(Color.black.opacity(0.76))
+                    .foregroundStyle(Color.white.opacity(0.84))
             }
             .padding(12)
-            .background(Color.white)
+            .background(Color.black.opacity(0.72))
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(selected ? sharePrimaryColor : Color.black.opacity(0.06), lineWidth: selected ? 2 : 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(selected ? sharePrimaryColor : Color.white.opacity(0.08), lineWidth: selected ? 2 : 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -96,20 +106,20 @@ struct BackgroundEditScreen: View {
             VStack(alignment: .leading, spacing: 12) {
                 backgroundPreview(for: .photo)
                     .frame(height: 150)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .opacity(selectedPhotoImage == nil ? 0.65 : 1)
 
                 Text(ShareBackgroundOption.photo.title(appLanguage))
                     .font(.system(size: 15, weight: .medium, design: .default))
-                    .foregroundStyle(Color.black.opacity(0.76))
+                    .foregroundStyle(Color.white.opacity(0.84))
             }
             .padding(12)
-            .background(Color.white)
+            .background(Color.black.opacity(0.72))
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(selected ? sharePrimaryColor : Color.black.opacity(0.06), lineWidth: selected ? 2 : 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(selected ? sharePrimaryColor : Color.white.opacity(0.08), lineWidth: selected ? 2 : 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .onChange(of: selectedPhotoItem) { _, _ in
             backgroundOption = .photo
@@ -119,6 +129,22 @@ struct BackgroundEditScreen: View {
     private func backgroundPreview(for option: ShareBackgroundOption) -> some View {
         ZStack {
             switch option {
+            case .map:
+                ZStack {
+                    Color(red: 0.93, green: 0.93, blue: 0.89)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.82))
+                        .frame(height: 20)
+                        .rotationEffect(.degrees(-12))
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.82))
+                        .frame(width: 22)
+                        .rotationEffect(.degrees(18))
+                    Circle()
+                        .fill(Color(red: 0.72, green: 0.84, blue: 0.60).opacity(0.7))
+                        .frame(width: 70, height: 70)
+                        .offset(x: 46, y: 44)
+                }
             case .white:
                 Color.white
             case .photo:

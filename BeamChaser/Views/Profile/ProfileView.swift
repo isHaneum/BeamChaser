@@ -74,8 +74,7 @@ struct ProfileView: View {
                 }
             }
             .onAppear {
-                authService.signInError = nil
-                authService.isAuthenticating = false  // 이전 시도에서 stuck된 경우 리셋
+                authService.resetTransientAuthState()
                 profileService.evaluateAfterRun(records: runSession.savedRecords)
                 // HealthKit에서 키 자동 가져오기
                 if healthKit.isAuthorized, let hkHeight = healthKit.userHeightCm {
@@ -139,7 +138,8 @@ struct ProfileView: View {
                 title: appLanguage.text("Apple로 로그인", "Sign in with Apple"),
                 height: 50,
                 cornerRadius: 12,
-                isAuthenticating: authService.isAuthenticating
+                isAuthenticating: authService.selectedProvider == .apple,
+                isAvailable: authService.isAppleSignInAvailable
             ) { request in
                 authService.prepareAppleSignInRequest(request)
             } onCompletion: { result in
@@ -157,12 +157,19 @@ struct ProfileView: View {
                 }
             }
 
+            if let availabilityMessage = authService.appleSignInAvailabilityMessage {
+                Text(availabilityMessage)
+                    .font(RBFont.caption(11))
+                    .foregroundStyle(RBColor.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
             if authService.isGoogleSignInAvailable {
                 GoogleBrandedSignInButton(
                     title: appLanguage.text("Google로 로그인", "Sign in with Google"),
                     height: 50,
                     cornerRadius: 12,
-                    isAuthenticating: authService.isAuthenticating
+                    isAuthenticating: authService.selectedProvider == .google
                 ) {
                     Task {
                         await authService.signInWithGoogle(backendService: backendService)
@@ -198,7 +205,9 @@ struct ProfileView: View {
     // MARK: - 프로필 헤더
 
     private var profileHeader: some View {
-        VStack(spacing: 12) {
+        let displayName = authService.userName ?? profileService.nickname
+
+        return VStack(spacing: 12) {
             // 프로필 사진 + 선택기
             PhotosPicker(selection: $profilePhotoItem, matching: .images) {
                 ZStack(alignment: .bottomTrailing) {
@@ -218,9 +227,9 @@ struct ProfileView: View {
                             )
                             .frame(width: 80, height: 80)
                             .overlay {
-                                Text(String((authService.userName ?? profileService.nickname).prefix(1)))
+                                Text(String(displayName.prefix(1)))
                                     .font(RBFont.hero(32))
-                                    .foregroundStyle(RBColor.textPrimary)
+                                    .foregroundStyle(RBColor.onAccent)
                             }
                     }
 
@@ -232,11 +241,11 @@ struct ProfileView: View {
                         if isUploadingPhoto {
                             ProgressView()
                                 .scaleEffect(0.6)
-                                .tint(.white)
+                                .tint(RBColor.onAccent)
                         } else {
                             Image(systemName: "camera.fill")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(RBColor.onAccent)
                         }
                     }
                     .offset(x: 2, y: 2)
@@ -253,11 +262,11 @@ struct ProfileView: View {
                 }
             }
 
-            Text(authService.userName ?? profileService.nickname)
+            Text(displayName)
                 .font(RBFont.label(20))
                 .foregroundStyle(RBColor.textPrimary)
                 .onTapGesture {
-                    nicknameInput = authService.userName ?? profileService.nickname
+                    nicknameInput = displayName
                     showNicknameSheet = true
                 }
 
@@ -272,7 +281,7 @@ struct ProfileView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "flame.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(RBColor.accent)
                     Text(appLanguage.text("\(profileService.currentStreak)일 연속", "\(profileService.currentStreak)-day streak"))
                         .font(RBFont.caption(12))
                         .foregroundStyle(RBColor.accent)
@@ -315,9 +324,6 @@ struct ProfileView: View {
                             .font(RBFont.hero(24))
                             .foregroundStyle(levelColor(current))
                     }
-                    Text(appLanguage.text("\(currentXP) 경험치", "\(currentXP) XP"))
-                        .font(RBFont.caption(12))
-                        .foregroundStyle(RBColor.textSecondary)
                 }
 
                 Spacer()
@@ -328,8 +334,8 @@ struct ProfileView: View {
                         .foregroundStyle(levelColor(current))
                         .shadow(color: levelColor(current).opacity(0.5), radius: 8)
 
-                    if let nextLevel, let nextXP {
-                        Text(appLanguage.text("다음: \(nextLevel.localizedName(appLanguage)) · \(max(0, nextXP - currentXP)) 경험치", "Next: \(nextLevel.localizedName(appLanguage)) · \(max(0, nextXP - currentXP)) XP"))
+                    if let nextLevel {
+                        Text(appLanguage.text("다음: \(nextLevel.localizedName(appLanguage))", "Next: \(nextLevel.localizedName(appLanguage))"))
                             .font(RBFont.caption(10))
                             .foregroundStyle(RBColor.textTertiary)
                             .multilineTextAlignment(.trailing)
@@ -338,22 +344,6 @@ struct ProfileView: View {
             }
 
             VStack(spacing: 8) {
-                HStack {
-                    Text(appLanguage.text("\(currentXP) 경험치", "\(currentXP) XP"))
-                        .font(RBFont.caption(11))
-                        .foregroundStyle(RBColor.textPrimary)
-                    Spacer()
-                    if let nextXP {
-                        Text(appLanguage.text("\(nextXP) 경험치", "\(nextXP) XP"))
-                            .font(RBFont.caption(11))
-                            .foregroundStyle(RBColor.textTertiary)
-                    } else {
-                        Text(appLanguage.text("최고 단계", "Max"))
-                            .font(RBFont.caption(11))
-                            .foregroundStyle(RBColor.accent)
-                    }
-                }
-
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()
@@ -371,6 +361,22 @@ struct ProfileView: View {
                     }
                 }
                 .frame(height: 10)
+
+                HStack {
+                    Text(appLanguage.text("\(Int((progress * 100).rounded()))%", "\(Int((progress * 100).rounded()))%"))
+                        .font(RBFont.caption(11))
+                        .foregroundStyle(RBColor.textSecondary)
+                    Spacer()
+                    if let nextXP {
+                        Text(appLanguage.text("다음까지 \(max(0, nextXP - currentXP)) 경험치", "\(max(0, nextXP - currentXP)) XP to next"))
+                            .font(RBFont.caption(11))
+                            .foregroundStyle(RBColor.textTertiary)
+                    } else {
+                        Text(appLanguage.text("최고 단계", "Max level"))
+                            .font(RBFont.caption(11))
+                            .foregroundStyle(RBColor.accent)
+                    }
+                }
             }
         }
         .padding(16)
@@ -498,26 +504,29 @@ struct ProfileView: View {
         }
         .padding(16)
         .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
     }
 
     private func badgeCell(type: BadgeType, isEarned: Bool) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             ZStack {
-                Circle()
-                    .fill(isEarned ? RBColor.accent.opacity(0.2) : Color.white.opacity(0.05))
-                    .frame(width: 52, height: 52)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isEarned ? RBColor.accentSurface : RBColor.cardBgLight)
+                    .frame(width: 60, height: 60)
 
                 Image(systemName: type.icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(isEarned ? RBColor.accent : RBColor.textTertiary.opacity(0.4))
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(isEarned ? RBColor.accent : RBColor.textTertiary)
             }
             Text(type.name)
-                .font(RBFont.caption(9))
-                .foregroundStyle(isEarned ? .white : RBColor.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .font(RBFont.caption(10))
+                .foregroundStyle(isEarned ? RBColor.textPrimary : RBColor.textSecondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 26, alignment: .top)
         }
+        .opacity(isEarned ? 1 : 0.55)
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .top)
     }
 
     // MARK: - 누적 통계
@@ -572,7 +581,7 @@ struct ProfileView: View {
         }
         .padding(16)
         .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
     }
 
     private func statBlock(label: String, value: String, unit: String) -> some View {
@@ -581,16 +590,17 @@ struct ProfileView: View {
                 .font(RBFont.caption(9))
                 .foregroundStyle(RBColor.textTertiary)
                 .tracking(0.5)
-            HStack(alignment: .lastTextBaseline, spacing: 1) {
-                Text(value)
-                    .font(RBFont.metric(16))
-                    .foregroundStyle(RBColor.textPrimary)
-                if !unit.isEmpty {
-                    Text(unit)
-                        .font(RBFont.caption(9))
-                        .foregroundStyle(RBColor.textSecondary)
-                }
-            }
+
+            RBMetricLine(
+                value: value,
+                unit: unit,
+                valueFont: RBFont.metric(16),
+                unitFont: RBFont.unit(9),
+                valueColor: RBColor.textPrimary,
+                unitColor: RBColor.textSecondary,
+                spacing: 1,
+                alignment: .center
+            )
         }
         .frame(maxWidth: .infinity)
     }
@@ -638,12 +648,11 @@ struct ProfileView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
+                .fill(Color.black.opacity(0.88))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(RBColor.accent.opacity(0.3), lineWidth: 1)
+                .stroke(RBColor.accent.opacity(0.42), lineWidth: 1)
         )
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -716,7 +725,11 @@ struct ProfileView: View {
                     } label: {
                         Text(appLanguage.localized("저장"))
                             .font(RBFont.label(16))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(
+                                nicknameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || nicknameInput.count > 12
+                                ? Color.black.opacity(0.45)
+                                : .black
+                            )
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
                             .background(

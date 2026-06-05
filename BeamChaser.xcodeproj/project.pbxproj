@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03D2CBD37559D5C439940DB6 /* PaceCoachingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 633AA0B1F8D90C6942287DDF /* PaceCoachingService.swift */; };
 		0650D16EAC442F9C4773B0B6 /* HapticEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BD7296EAD5B9D6D07E58837 /* HapticEngine.swift */; };
 		06CDDBBCB041D198DA7E975F /* WatchConnectivityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FA86DA5945C10A8CE6224B1 /* WatchConnectivityModels.swift */; };
 		0879DD6EAC21F72CC565B163 /* ActualBLEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D647CF6BD46AB6D4F6B1E4E7 /* ActualBLEService.swift */; };
@@ -18,20 +19,31 @@
 		1CF650790D0AB614B710B108 /* RunShareScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78EA950FA6D8DAFE19B2DAE4 /* RunShareScreen.swift */; };
 		23602A61758B37306E74FDA2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B7F2B3EA6D7507007B6F8D9 /* ContentView.swift */; };
 		2426E5605E7D280A3D1905F4 /* RunModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E648085CFE90F328D3603585 /* RunModels.swift */; };
+		250B2F35B80D8D9329AA9BB8 /* CommunityFriendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51532E65D605B39BA3F41518 /* CommunityFriendView.swift */; };
+		284B7EB4B29B0CEA8CF6F188 /* Localizable 2.strings in Resources */ = {isa = PBXBuildFile; fileRef = 30FA69934B04BDD1E5F709A9 /* Localizable 2.strings */; };
 		29B8164702FD3C976F5ACB0E /* BeamChaserApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CF86D797CCF1F2E934B76B3 /* BeamChaserApp.swift */; };
 		2A973232FEBAC38F4EAA7F23 /* RunDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4202211A5C0D7EBA0E866746 /* RunDashboardView.swift */; };
+		2AD793EF05810B12F2DC2D18 /* RunMetricsAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A43B99134DC93FFB63081E /* RunMetricsAnalyzer.swift */; };
+		2D93CA9CCB2A898B2810D46E /* RunMetricsAnalyzerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84EB98299473BA5312C9260C /* RunMetricsAnalyzerTests.swift */; };
+		2FFD2C7B8F3F42AA0F1D671F /* PaceMakerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0D9444694697F843B10AB13 /* PaceMakerTests.swift */; };
+		325D11F88916C24F10B529D5 /* ComponentTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE9AD52C870DDD5142F105F /* ComponentTokens.swift */; };
 		3347BF105A1C7E9FF94BDE0B /* GameSelectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C278D0A80009D40F0D7B4FC8 /* GameSelectView.swift */; };
 		33F83A8D3DEBD8D2D57CEAC8 /* RunDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E9EAB8F0DFF03EA8F8D8D40 /* RunDetailView.swift */; };
 		34A9E3CAC8FF233CBB60C9BC /* DeviceConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F47A965F10399C9BE74B9B73 /* DeviceConnectionView.swift */; };
 		3A45286B7F7B875238FA310D /* HealthKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 446626F19AB22204FFF78C24 /* HealthKitService.swift */; };
+		3C78785EE9CC8AEC118AE67F /* SessionSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58EAAF15F05A2E5CA047658 /* SessionSyncTests.swift */; };
 		3DE55A20B9885A9715614139 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DA5BEB48340AD2502F3530F /* ProfileView.swift */; };
 		42E0095D9AE876F7E1C3B80D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DF91E46FA128DEAAAC12A0 /* HomeView.swift */; };
+		4CCA53322F9E58EF9B6C4DC9 /* FriendshipService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE0938476FF804982DD5EE0 /* FriendshipService.swift */; };
 		54CF9F3BBD167CFFA690B5A7 /* RunSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EFCF2B3F235AD0345ED55A8 /* RunSessionManager.swift */; };
 		5652B4DAE13615D1AF76696C /* PaceSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6645E29FBB7DF845AA4214 /* PaceSetupView.swift */; };
+		58D42373D8731A665E88B6D6 /* runbeam-f1f5b-165a920f92cf.json in Resources */ = {isa = PBXBuildFile; fileRef = D9491A6778A1B93DEC6126A2 /* runbeam-f1f5b-165a920f92cf.json */; };
 		59E1EF34E718E0C655C75E7E /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = F8E11D3E2C1992855C101578 /* Localizable.strings */; };
 		59F6A3E3E1E20EAD8F8BF232 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A54D2F3EBD98692AEE0DC617 /* FirebaseAuth */; };
 		630D0411057CDC0B2DDE320E /* RunnerSimulationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0207FF2F56DB50202716BE85 /* RunnerSimulationView.swift */; };
+		6536AAE3BB0A58581DB49985 /* InfoPlist 2.strings in Resources */ = {isa = PBXBuildFile; fileRef = 8C1989F464E7B0026F582D1F /* InfoPlist 2.strings */; };
 		6BD063E621E029C4833B3F24 /* watch.md in Resources */ = {isa = PBXBuildFile; fileRef = F42CC25206E370B23407E717 /* watch.md */; };
+		6EE60B9047AC795C0113E04C /* LayoutTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F61A3C54CE68ED2A2D192D /* LayoutTokens.swift */; };
 		743F097D087D5E13C82B6954 /* PhoneSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B63169B26593DB1113E6EF8 /* PhoneSessionManager.swift */; };
 		79E03E5E4B431C7B7C31AAF6 /* BeamChaserWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 582C6FE55EAA2FE1B50643DF /* BeamChaserWatchApp.swift */; };
 		7E533A5B86DB7A073AFDDEA6 /* IdleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CC99FC8B62415D28A772F2 /* IdleView.swift */; };
@@ -48,9 +60,9 @@
 		A5BEF43EAFBF0254DCB27B4F /* ContactsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87A0CC7609640BBFD5451EE2 /* ContactsService.swift */; };
 		A9617288430A9260716D7B98 /* FirebaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96179D1257FF2F7CE4B4F427 /* FirebaseConfig.swift */; };
 		B751E3DD6FE17EC956B1B707 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0BBD7C4CBD305E174DA1BB /* SettingsView.swift */; };
-		B8F6C4A50D9A4C7E8E8B4A21 /* PaceCoachingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2D4E6A1F3B4C5D6E7F8091 /* PaceCoachingService.swift */; };
 		BDBFB48002E035CEB2D3C88E /* PaceMakerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33BE1A4A5D6E620D8EB20E38 /* PaceMakerEngine.swift */; };
 		BDC84B089A43A7FD2ECF9E93 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 2980F47B272DCFD0C2CB786A /* FirebaseStorage */; };
+		C72E9A4263D1F2F73D00F312 /* PrivacyInfo 2.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9FFC111B01DF5C63215692AD /* PrivacyInfo 2.xcprivacy */; };
 		C88DB4F49859145C6332EE59 /* PauseFinishView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7DB22B2F07FFC3E8B7FFD88 /* PauseFinishView.swift */; };
 		CE9F0CBCAA895E2E8AA75DDA /* BLEProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C37D750A370CB40B57C368D /* BLEProtocol.swift */; };
 		D15AB1E4792332048CEA0479 /* RunShareCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997E1CC0DC781F2F7DB0B11D /* RunShareCardView.swift */; };
@@ -58,12 +70,15 @@
 		D9B33166D7E27E93F31957ED /* NowPlayingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58DB1F031077B993431BC2BE /* NowPlayingService.swift */; };
 		E0563A6632016F482591BD19 /* BackendService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE665DA001E477EA3579D10 /* BackendService.swift */; };
 		E6BB310F2BF0E2201A1C5567 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99FC835716F82E9340A2314 /* AuthService.swift */; };
+		E8288BD55FEA940B5C952EFB /* ColorTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0AC398C35E869AFFBE2EEF /* ColorTokens.swift */; };
 		E866B3490D52CA904BDAEB06 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312FC1A6C56FE8BBA381EE95 /* LocationService.swift */; };
+		E9FF5EA1EECA632536CDE192 /* RunActiveLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E8515D8AEEC18A8CD1DEA0 /* RunActiveLayoutTests.swift */; };
 		EBC749A92F3A951ACF066656 /* BackgroundEditScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D740D4183842B4DA55C1CF29 /* BackgroundEditScreen.swift */; };
 		F32CEB513643DC34A99207F5 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7DEA7EB6345811C27C68A59 /* DesignSystem.swift */; };
 		F3E031C7A059590AC13B6214 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 98EF4C45B72FF147649958AF /* FirebaseCore */; };
 		F82F8AAF4367EB5E326851CE /* MockBLEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C8B8022378545D95F20562 /* MockBLEService.swift */; };
 		FB22AE03FEC7E93E4F71F80E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 379C67B2595A6C9454B192D1 /* PrivacyInfo.xcprivacy */; };
+		FB746199F20E8A520FDA3B86 /* TypographyTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EADF8E91D6362CA9496CEDA /* TypographyTokens.swift */; };
 		FC9DC7E2A7D1C54386870D04 /* DeviceCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1F867544A2328EFDED36A2 /* DeviceCalibrationView.swift */; };
 		FCFDF264F980E54B4FC8DA5B /* RunActiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB7B71027B9ACB9287FF566 /* RunActiveView.swift */; };
 		FF911E88A34282DAC747B0E4 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 6F98D07D52D1FD6D292656E5 /* InfoPlist.strings */; };
@@ -77,6 +92,13 @@
 			remoteGlobalIDString = 9FCBB8AE40C0FB81C80C3BFC;
 			remoteInfo = BeamChaser;
 		};
+		FB3589553A76CB469E6DFCA6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2250900684696F74D0947CFC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9FCBB8AE40C0FB81C80C3BFC;
+			remoteInfo = BeamChaser;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -84,9 +106,11 @@
 		05C8B8022378545D95F20562 /* MockBLEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockBLEService.swift; sourceTree = "<group>"; };
 		1BD7296EAD5B9D6D07E58837 /* HapticEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticEngine.swift; sourceTree = "<group>"; };
 		1D0BBD7C4CBD305E174DA1BB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		25139596DBC6C027E1B40E29 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = "en.lproj/InfoPlist 2.strings"; sourceTree = "<group>"; };
 		286191B5D08927AC8D89CE6E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2E9EAB8F0DFF03EA8F8D8D40 /* RunDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunDetailView.swift; sourceTree = "<group>"; };
 		2FA86DA5945C10A8CE6224B1 /* WatchConnectivityModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityModels.swift; sourceTree = "<group>"; };
+		30E8515D8AEEC18A8CD1DEA0 /* RunActiveLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunActiveLayoutTests.swift; sourceTree = "<group>"; };
 		312FC1A6C56FE8BBA381EE95 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
 		33BE1A4A5D6E620D8EB20E38 /* PaceMakerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceMakerEngine.swift; sourceTree = "<group>"; };
 		341ACB8644CECEB682E2AD0A /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
@@ -96,20 +120,27 @@
 		4202211A5C0D7EBA0E866746 /* RunDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunDashboardView.swift; sourceTree = "<group>"; };
 		446626F19AB22204FFF78C24 /* HealthKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitService.swift; sourceTree = "<group>"; };
 		4725613F2B70E504E035B9BB /* RunShareComposerScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunShareComposerScene.swift; sourceTree = "<group>"; };
+		4CE0938476FF804982DD5EE0 /* FriendshipService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendshipService.swift; sourceTree = "<group>"; };
+		51532E65D605B39BA3F41518 /* CommunityFriendView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityFriendView.swift; sourceTree = "<group>"; };
 		582C6FE55EAA2FE1B50643DF /* BeamChaserWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeamChaserWatchApp.swift; sourceTree = "<group>"; };
 		58DB1F031077B993431BC2BE /* NowPlayingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingService.swift; sourceTree = "<group>"; };
 		5DA5BEB48340AD2502F3530F /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		5EFCF2B3F235AD0345ED55A8 /* RunSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunSessionManager.swift; sourceTree = "<group>"; };
+		61F61A3C54CE68ED2A2D192D /* LayoutTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutTokens.swift; sourceTree = "<group>"; };
+		633AA0B1F8D90C6942287DDF /* PaceCoachingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceCoachingService.swift; sourceTree = "<group>"; };
 		64181EAC9599816317479DB1 /* BeamChaser.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeamChaser.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		666403B673A828188C6BC71E /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		6B57844C7DF536C38932FD6C /* BLEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEService.swift; sourceTree = "<group>"; };
 		6C37D750A370CB40B57C368D /* BLEProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEProtocol.swift; sourceTree = "<group>"; };
+		6EADF8E91D6362CA9496CEDA /* TypographyTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypographyTokens.swift; sourceTree = "<group>"; };
 		6F3A57CB6D23F1CC33D639B2 /* RunnerPOVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPOVView.swift; sourceTree = "<group>"; };
 		77B1EB61BECE2F21D0AEE3DE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		78EA950FA6D8DAFE19B2DAE4 /* RunShareScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunShareScreen.swift; sourceTree = "<group>"; };
 		7B7F2B3EA6D7507007B6F8D9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		7CF86D797CCF1F2E934B76B3 /* BeamChaserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeamChaserApp.swift; sourceTree = "<group>"; };
 		7E84CA348C028724F49F7D0C /* HardwareControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareControlView.swift; sourceTree = "<group>"; };
+		81D839176D915C097104BFA2 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = "en.lproj/Localizable 2.strings"; sourceTree = "<group>"; };
+		84EB98299473BA5312C9260C /* RunMetricsAnalyzerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunMetricsAnalyzerTests.swift; sourceTree = "<group>"; };
 		858DEFC37CCE1328A8754CD2 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		87A0CC7609640BBFD5451EE2 /* ContactsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsService.swift; sourceTree = "<group>"; };
 		8B63169B26593DB1113E6EF8 /* PhoneSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneSessionManager.swift; sourceTree = "<group>"; };
@@ -117,21 +148,28 @@
 		94DBDCD6165E390479103020 /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
 		96179D1257FF2F7CE4B4F427 /* FirebaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseConfig.swift; sourceTree = "<group>"; };
 		997E1CC0DC781F2F7DB0B11D /* RunShareCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunShareCardView.swift; sourceTree = "<group>"; };
-		9C2D4E6A1F3B4C5D6E7F8091 /* PaceCoachingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceCoachingService.swift; sourceTree = "<group>"; };
 		9D6645E29FBB7DF845AA4214 /* PaceSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceSetupView.swift; sourceTree = "<group>"; };
+		9FFC111B01DF5C63215692AD /* PrivacyInfo 2.xcprivacy */ = {isa = PBXFileReference; path = "PrivacyInfo 2.xcprivacy"; sourceTree = "<group>"; };
 		B01516678E50AAC2C6B3454A /* BeamChaserWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeamChaserWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDB7B71027B9ACB9287FF566 /* RunActiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunActiveView.swift; sourceTree = "<group>"; };
 		C1D5FBC1C399D4F861B91113 /* BeamChaser.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BeamChaser.entitlements; sourceTree = "<group>"; };
 		C278D0A80009D40F0D7B4FC8 /* GameSelectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSelectView.swift; sourceTree = "<group>"; };
 		C99FC835716F82E9340A2314 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		D0D9444694697F843B10AB13 /* PaceMakerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceMakerTests.swift; sourceTree = "<group>"; };
 		D647CF6BD46AB6D4F6B1E4E7 /* ActualBLEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActualBLEService.swift; sourceTree = "<group>"; };
 		D740D4183842B4DA55C1CF29 /* BackgroundEditScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundEditScreen.swift; sourceTree = "<group>"; };
+		D9491A6778A1B93DEC6126A2 /* runbeam-f1f5b-165a920f92cf.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "runbeam-f1f5b-165a920f92cf.json"; sourceTree = "<group>"; };
+		DA0AC398C35E869AFFBE2EEF /* ColorTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorTokens.swift; sourceTree = "<group>"; };
+		DFE9AD52C870DDD5142F105F /* ComponentTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComponentTokens.swift; sourceTree = "<group>"; };
+		E031DF9E126D3258DBBA57F6 /* BeamChaserTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BeamChaserTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E648085CFE90F328D3603585 /* RunModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunModels.swift; sourceTree = "<group>"; };
 		E7DB22B2F07FFC3E8B7FFD88 /* PauseFinishView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseFinishView.swift; sourceTree = "<group>"; };
 		E8DA794517D73CB79C1D9384 /* LegalContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegalContent.swift; sourceTree = "<group>"; };
+		F1A43B99134DC93FFB63081E /* RunMetricsAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunMetricsAnalyzer.swift; sourceTree = "<group>"; };
 		F42CC25206E370B23407E717 /* watch.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = watch.md; sourceTree = "<group>"; };
 		F47A965F10399C9BE74B9B73 /* DeviceConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceConnectionView.swift; sourceTree = "<group>"; };
 		F55E5B56D27971B0CF6881C7 /* CommunityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityView.swift; sourceTree = "<group>"; };
+		F58EAAF15F05A2E5CA047658 /* SessionSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSyncTests.swift; sourceTree = "<group>"; };
 		F5CC99FC8B62415D28A772F2 /* IdleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleView.swift; sourceTree = "<group>"; };
 		F6DF91E46FA128DEAAAC12A0 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		F7DEA7EB6345811C27C68A59 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
@@ -178,6 +216,7 @@
 			isa = PBXGroup;
 			children = (
 				64181EAC9599816317479DB1 /* BeamChaser.app */,
+				E031DF9E126D3258DBBA57F6 /* BeamChaserTests.xctest */,
 				B01516678E50AAC2C6B3454A /* BeamChaserWatch.app */,
 			);
 			name = Products;
@@ -197,6 +236,7 @@
 			children = (
 				6C37D750A370CB40B57C368D /* BLEProtocol.swift */,
 				E8DA794517D73CB79C1D9384 /* LegalContent.swift */,
+				F1A43B99134DC93FFB63081E /* RunMetricsAnalyzer.swift */,
 				E648085CFE90F328D3603585 /* RunModels.swift */,
 				35DD10D29E9DB4D81A10AD8D /* RunnerProfile.swift */,
 			);
@@ -239,6 +279,17 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		45EC43D079FCF6B028DBF33E /* BeamChaserTests */ = {
+			isa = PBXGroup;
+			children = (
+				D0D9444694697F843B10AB13 /* PaceMakerTests.swift */,
+				30E8515D8AEEC18A8CD1DEA0 /* RunActiveLayoutTests.swift */,
+				84EB98299473BA5312C9260C /* RunMetricsAnalyzerTests.swift */,
+				F58EAAF15F05A2E5CA047658 /* SessionSyncTests.swift */,
+			);
+			path = BeamChaserTests;
+			sourceTree = "<group>";
+		};
 		48718154C885FF7B94E7D175 /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -258,6 +309,7 @@
 			isa = PBXGroup;
 			children = (
 				EF4B68F49DB689BB0782660A /* BeamChaser */,
+				45EC43D079FCF6B028DBF33E /* BeamChaserTests */,
 				4B5A88F0BCD6051837DDAB2A /* Shared */,
 				AF0FD079EF06C6BCCA619F3E /* Sources */,
 				28E732B68DA57000D74D5A94 /* Products */,
@@ -271,8 +323,11 @@
 				C1D5FBC1C399D4F861B91113 /* BeamChaser.entitlements */,
 				666403B673A828188C6BC71E /* GoogleService-Info.plist */,
 				286191B5D08927AC8D89CE6E /* Info.plist */,
+				9FFC111B01DF5C63215692AD /* PrivacyInfo 2.xcprivacy */,
 				379C67B2595A6C9454B192D1 /* PrivacyInfo.xcprivacy */,
+				8C1989F464E7B0026F582D1F /* InfoPlist 2.strings */,
 				6F98D07D52D1FD6D292656E5 /* InfoPlist.strings */,
+				30FA69934B04BDD1E5F709A9 /* Localizable 2.strings */,
 				F8E11D3E2C1992855C101578 /* Localizable.strings */,
 			);
 			path = Resources;
@@ -281,9 +336,13 @@
 		841842C44C12CD3EA53E0BBF /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				DA0AC398C35E869AFFBE2EEF /* ColorTokens.swift */,
+				DFE9AD52C870DDD5142F105F /* ComponentTokens.swift */,
 				F7DEA7EB6345811C27C68A59 /* DesignSystem.swift */,
+				61F61A3C54CE68ED2A2D192D /* LayoutTokens.swift */,
 				6F3A57CB6D23F1CC33D639B2 /* RunnerPOVView.swift */,
 				0207FF2F56DB50202716BE85 /* RunnerSimulationView.swift */,
+				6EADF8E91D6362CA9496CEDA /* TypographyTokens.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -291,6 +350,7 @@
 		8B0B9CA70419ED9D055F2D11 /* Community */ = {
 			isa = PBXGroup;
 			children = (
+				51532E65D605B39BA3F41518 /* CommunityFriendView.swift */,
 				F55E5B56D27971B0CF6881C7 /* CommunityView.swift */,
 			);
 			path = Community;
@@ -305,11 +365,12 @@
 				6B57844C7DF536C38932FD6C /* BLEService.swift */,
 				87A0CC7609640BBFD5451EE2 /* ContactsService.swift */,
 				96179D1257FF2F7CE4B4F427 /* FirebaseConfig.swift */,
+				4CE0938476FF804982DD5EE0 /* FriendshipService.swift */,
 				446626F19AB22204FFF78C24 /* HealthKitService.swift */,
 				312FC1A6C56FE8BBA381EE95 /* LocationService.swift */,
 				05C8B8022378545D95F20562 /* MockBLEService.swift */,
 				58DB1F031077B993431BC2BE /* NowPlayingService.swift */,
-				9C2D4E6A1F3B4C5D6E7F8091 /* PaceCoachingService.swift */,
+				633AA0B1F8D90C6942287DDF /* PaceCoachingService.swift */,
 				33BE1A4A5D6E620D8EB20E38 /* PaceMakerEngine.swift */,
 				8B63169B26593DB1113E6EF8 /* PhoneSessionManager.swift */,
 				5EFCF2B3F235AD0345ED55A8 /* RunSessionManager.swift */,
@@ -378,6 +439,7 @@
 		EF4B68F49DB689BB0782660A /* BeamChaser */ = {
 			isa = PBXGroup;
 			children = (
+				D9491A6778A1B93DEC6126A2 /* runbeam-f1f5b-165a920f92cf.json */,
 				F42CC25206E370B23407E717 /* watch.md */,
 				EC958FD3F111A765202328A4 /* App */,
 				30E0F77CAC2327F76EC3979A /* Models */,
@@ -442,6 +504,24 @@
 			productReference = 64181EAC9599816317479DB1 /* BeamChaser.app */;
 			productType = "com.apple.product-type.application";
 		};
+		FC0DA37F0499BBA3F34F6F77 /* BeamChaserTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C8074BC2E478732B91356E97 /* Build configuration list for PBXNativeTarget "BeamChaserTests" */;
+			buildPhases = (
+				C2B1E12A4929E6C997F9F326 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				70EAD6D6180FA7AEDAFFDC28 /* PBXTargetDependency */,
+			);
+			name = BeamChaserTests;
+			packageProductDependencies = (
+			);
+			productName = BeamChaserTests;
+			productReference = E031DF9E126D3258DBBA57F6 /* BeamChaserTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -456,7 +536,10 @@
 					};
 					9FCBB8AE40C0FB81C80C3BFC = {
 						DevelopmentTeam = 65V7ZCL579;
-						SystemCapabilities = "[\"com.apple.HealthKit\": [\"enabled\": true], \"com.apple.BackgroundModes.bluetooth-central\": [\"enabled\": true], \"com.apple.SignInWithApple\": [\"enabled\": true], \"com.apple.BackgroundModes.location\": [\"enabled\": true], \"com.apple.BackgroundModes\": [\"enabled\": true]]";
+						SystemCapabilities = "[\"com.apple.BackgroundModes\": [\"enabled\": true], \"com.apple.BackgroundModes.location\": [\"enabled\": true], \"com.apple.BackgroundModes.bluetooth-central\": [\"enabled\": true], \"com.apple.SignInWithApple\": [\"enabled\": true], \"com.apple.HealthKit\": [\"enabled\": true]]";
+					};
+					FC0DA37F0499BBA3F34F6F77 = {
+						DevelopmentTeam = 65V7ZCL579;
 					};
 				};
 			};
@@ -479,6 +562,7 @@
 			projectRoot = "";
 			targets = (
 				9FCBB8AE40C0FB81C80C3BFC /* BeamChaser */,
+				FC0DA37F0499BBA3F34F6F77 /* BeamChaserTests */,
 				61D08689C63A5AA3FE1983D0 /* BeamChaserWatch */,
 			);
 		};
@@ -491,9 +575,13 @@
 			files = (
 				15BF7F92E7EE71D79BBA9761 /* Assets.xcassets in Resources */,
 				97B14B6EEFC8EA1010EF2BD4 /* GoogleService-Info.plist in Resources */,
+				6536AAE3BB0A58581DB49985 /* InfoPlist 2.strings in Resources */,
 				FF911E88A34282DAC747B0E4 /* InfoPlist.strings in Resources */,
+				284B7EB4B29B0CEA8CF6F188 /* Localizable 2.strings in Resources */,
 				59E1EF34E718E0C655C75E7E /* Localizable.strings in Resources */,
+				C72E9A4263D1F2F73D00F312 /* PrivacyInfo 2.xcprivacy in Resources */,
 				FB22AE03FEC7E93E4F71F80E /* PrivacyInfo.xcprivacy in Resources */,
+				58D42373D8731A665E88B6D6 /* runbeam-f1f5b-165a920f92cf.json in Resources */,
 				6BD063E621E029C4833B3F24 /* watch.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -512,22 +600,27 @@
 				E0563A6632016F482591BD19 /* BackendService.swift in Sources */,
 				EBC749A92F3A951ACF066656 /* BackgroundEditScreen.swift in Sources */,
 				29B8164702FD3C976F5ACB0E /* BeamChaserApp.swift in Sources */,
+				E8288BD55FEA940B5C952EFB /* ColorTokens.swift in Sources */,
+				250B2F35B80D8D9329AA9BB8 /* CommunityFriendView.swift in Sources */,
 				1943DBA1D50AD17F7D9AAD04 /* CommunityView.swift in Sources */,
+				325D11F88916C24F10B529D5 /* ComponentTokens.swift in Sources */,
 				A5BEF43EAFBF0254DCB27B4F /* ContactsService.swift in Sources */,
 				23602A61758B37306E74FDA2 /* ContentView.swift in Sources */,
 				F32CEB513643DC34A99207F5 /* DesignSystem.swift in Sources */,
 				FC9DC7E2A7D1C54386870D04 /* DeviceCalibrationView.swift in Sources */,
 				34A9E3CAC8FF233CBB60C9BC /* DeviceConnectionView.swift in Sources */,
 				A9617288430A9260716D7B98 /* FirebaseConfig.swift in Sources */,
+				4CCA53322F9E58EF9B6C4DC9 /* FriendshipService.swift in Sources */,
 				3347BF105A1C7E9FF94BDE0B /* GameSelectView.swift in Sources */,
 				3A45286B7F7B875238FA310D /* HealthKitService.swift in Sources */,
 				42E0095D9AE876F7E1C3B80D /* HomeView.swift in Sources */,
+				6EE60B9047AC795C0113E04C /* LayoutTokens.swift in Sources */,
 				8643A218FD3C95B81CBAA2A5 /* LegalContent.swift in Sources */,
 				E866B3490D52CA904BDAEB06 /* LocationService.swift in Sources */,
 				F82F8AAF4367EB5E326851CE /* MockBLEService.swift in Sources */,
 				D9B33166D7E27E93F31957ED /* NowPlayingService.swift in Sources */,
 				8E780C61A58234E3260D616F /* OnboardingView.swift in Sources */,
-				B8F6C4A50D9A4C7E8E8B4A21 /* PaceCoachingService.swift in Sources */,
+				03D2CBD37559D5C439940DB6 /* PaceCoachingService.swift in Sources */,
 				BDBFB48002E035CEB2D3C88E /* PaceMakerEngine.swift in Sources */,
 				5652B4DAE13615D1AF76696C /* PaceSetupView.swift in Sources */,
 				743F097D087D5E13C82B6954 /* PhoneSessionManager.swift in Sources */,
@@ -536,6 +629,7 @@
 				33F83A8D3DEBD8D2D57CEAC8 /* RunDetailView.swift in Sources */,
 				820FD4F27C2EEE47F2317B58 /* RunHistoryView.swift in Sources */,
 				851DA58A84D9F1343EB70BC7 /* RunMapView.swift in Sources */,
+				2AD793EF05810B12F2DC2D18 /* RunMetricsAnalyzer.swift in Sources */,
 				2426E5605E7D280A3D1905F4 /* RunModels.swift in Sources */,
 				54CF9F3BBD167CFFA690B5A7 /* RunSessionManager.swift in Sources */,
 				D15AB1E4792332048CEA0479 /* RunShareCardView.swift in Sources */,
@@ -545,6 +639,7 @@
 				1BAF3D22F44F7909D60DB436 /* RunnerProfile.swift in Sources */,
 				630D0411057CDC0B2DDE320E /* RunnerSimulationView.swift in Sources */,
 				B751E3DD6FE17EC956B1B707 /* SettingsView.swift in Sources */,
+				FB746199F20E8A520FDA3B86 /* TypographyTokens.swift in Sources */,
 				06CDDBBCB041D198DA7E975F /* WatchConnectivityModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -564,6 +659,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C2B1E12A4929E6C997F9F326 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2FFD2C7B8F3F42AA0F1D671F /* PaceMakerTests.swift in Sources */,
+				E9FF5EA1EECA632536CDE192 /* RunActiveLayoutTests.swift in Sources */,
+				2D93CA9CCB2A898B2810D46E /* RunMetricsAnalyzerTests.swift in Sources */,
+				3C78785EE9CC8AEC118AE67F /* SessionSyncTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -572,15 +678,36 @@
 			target = 9FCBB8AE40C0FB81C80C3BFC /* BeamChaser */;
 			targetProxy = EEA7E8C238DE6DC507563FC6 /* PBXContainerItemProxy */;
 		};
+		70EAD6D6180FA7AEDAFFDC28 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9FCBB8AE40C0FB81C80C3BFC /* BeamChaser */;
+			targetProxy = FB3589553A76CB469E6DFCA6 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
+		30FA69934B04BDD1E5F709A9 /* Localizable 2.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				81D839176D915C097104BFA2 /* en */,
+			);
+			name = "Localizable 2.strings";
+			sourceTree = "<group>";
+		};
 		6F98D07D52D1FD6D292656E5 /* InfoPlist.strings */ = {
 			isa = PBXVariantGroup;
 			children = (
 				F950C69CCD74A2DC587B6001 /* en */,
 			);
 			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+		8C1989F464E7B0026F582D1F /* InfoPlist 2.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				25139596DBC6C027E1B40E29 /* en */,
+			);
+			name = "InfoPlist 2.strings";
 			sourceTree = "<group>";
 		};
 		F8E11D3E2C1992855C101578 /* Localizable.strings */ = {
@@ -647,6 +774,23 @@
 			};
 			name = Release;
 		};
+		68000CD9465C7743888C808B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.haneum.beamchaser.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BeamChaser.app/BeamChaser";
+			};
+			name = Release;
+		};
 		7CB2B48C6A30CCEB0DCE6551 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -703,6 +847,23 @@
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
+		};
+		9FAD09181C18CAEE366A576F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.haneum.beamchaser.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BeamChaser.app/BeamChaser";
+			};
+			name = Debug;
 		};
 		C78C7551AB8C97E84D98E16E /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -800,6 +961,15 @@
 			buildConfigurations = (
 				2A80C0471EA77953AF4CB429 /* Debug */,
 				5F0B0A7FB3C04FCDEA240B87 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C8074BC2E478732B91356E97 /* Build configuration list for PBXNativeTarget "BeamChaserTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9FAD09181C18CAEE366A576F /* Debug */,
+				68000CD9465C7743888C808B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

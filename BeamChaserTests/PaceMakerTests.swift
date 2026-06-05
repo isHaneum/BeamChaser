@@ -1,6 +1,7 @@
 import XCTest
 @testable import BeamChaser
 
+@MainActor
 final class PaceMakerTests: XCTestCase {
     
     var paceMaker: PaceMakerEngine!

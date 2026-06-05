@@ -4,6 +4,7 @@ import MapKit
 struct RunDetailView: View {
     let record: RunRecord
     var onDone: (() -> Void)? = nil
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var runSession: RunSessionManager
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @State private var showShareCard = false
@@ -24,15 +25,14 @@ struct RunDetailView: View {
             RBColor.bg.ignoresSafeArea()
 
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 20) {
+                VStack(spacing: 18) {
                     routeMapSection
-                    summarySection
 
-                    detailStatsSection
-                        .padding(.horizontal, 16)
+                    primaryStatsSection
+                        .padding(.horizontal, 20)
 
                     sensorAccuracySection
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 20)
 
                     // 목표 페이스 결과
                     if let target = record.targetPace {
@@ -56,7 +56,7 @@ struct RunDetailView: View {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(achieved ? appLanguage.localized("달성") : appLanguage.localized("미달성"))
                                     .font(RBFont.label(14))
-                                    .foregroundStyle(achieved ? RBColor.success : RBColor.danger)
+                            .foregroundStyle(achieved ? RBColor.success : RBColor.danger)
                                 Text(String(format: "%@%d초", diff <= 0 ? "" : "+", Int(diff)))
                                     .font(RBFont.caption(11))
                                     .foregroundStyle(RBColor.textTertiary)
@@ -64,55 +64,31 @@ struct RunDetailView: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .background((achieved ? RBColor.success : RBColor.danger).opacity(0.15))
-                            .clipShape(Capsule())
+                            .clipShape(RoundedRectangle(cornerRadius: RBRadius.chip, style: .continuous))
                         }
                         .padding(16)
                         .background(RBColor.cardBg)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .padding(.horizontal, 16)
+                        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
+                        .padding(.horizontal, 20)
                     }
 
                     // 구간별 페이스 (킬로미터 스플릿)
                     if !kmSplits.isEmpty {
                         splitSection
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, 20)
                     }
 
                     // 이전 기록 대비 비교
                     comparisonSection
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 20)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
+                .padding(.bottom, 16)
             }
             .contentMargins(.bottom, RBLayout.scrollBottomInset, for: .scrollContent)
             .clipped()
         }
-        .navigationTitle(appLanguage.localized("러닝 상세"))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let onDone {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        onDone()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(RBColor.textSecondary)
-                    }
-                }
-            }
-
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showShareCard = true
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(RBColor.accent)
-                }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .fullScreenCover(isPresented: $showShareCard) {
             RunShareCardView(record: record)
         }
@@ -122,7 +98,7 @@ struct RunDetailView: View {
     }
 
     private var routeMapSection: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .top) {
             Map(position: $cameraPosition, interactionModes: .all) {
                 if record.routePoints.count >= 2 {
                     MapPolyline(coordinates: record.routePoints.map(\.coordinate))
@@ -159,128 +135,123 @@ struct RunDetailView: View {
                 MapCompass()
                 MapScaleView()
             }
-            .frame(height: 320)
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .frame(height: 370)
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    colors: [Color.black.opacity(0.48), Color.black.opacity(0.10), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 150)
+            }
             .overlay(alignment: .bottomLeading) {
                 VStack(alignment: .leading, spacing: 6) {
+                    Text(appLanguage.localized("러닝 상세"))
+                        .font(RBFont.caption(11))
+                        .foregroundStyle(Color.white.opacity(0.78))
+                        .tracking(1.2)
                     Text(RunPresentationFormatter.scheduleString(from: record.startDate))
                         .font(RBFont.caption(12))
-                        .foregroundStyle(Color.white.opacity(0.82))
+                        .foregroundStyle(Color.white.opacity(0.86))
                         .fixedSize(horizontal: false, vertical: true)
                     Text(appLanguage.text("내 러닝 경로", "My Running Route"))
-                        .font(RBFont.label(18))
+                        .font(RBFont.title(24))
                         .foregroundStyle(.white)
                 }
-                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 22)
                 .background(
                     LinearGradient(
-                        colors: [Color.black.opacity(0.64), Color.black.opacity(0.18)],
+                        colors: [Color.black.opacity(0.68), Color.black.opacity(0.18), .clear],
                         startPoint: .bottom,
                         endPoint: .top
                     )
                 )
             }
 
-            Button {
-                fitMapToRoute()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "map")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(appLanguage.text("경로 맞춤", "Fit Route"))
-                        .font(RBFont.label(12))
-                }
-                .foregroundStyle(RBColor.textPrimary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-            }
-            .padding(16)
-        }
-        .padding(.horizontal, 16)
-    }
-
-    private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(appLanguage.text("러닝 기록", "Run Summary"))
-                .font(RBFont.caption(11))
-                .foregroundStyle(RBColor.textTertiary)
-                .tracking(1.2)
-
-            HStack(alignment: .lastTextBaseline, spacing: 6) {
-                Text(String(format: "%.2f", record.distanceKm))
-                    .font(RBFont.hero(50))
-                    .foregroundStyle(RBColor.textPrimary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
-
-                Text("km")
-                    .font(RBFont.label(18))
-                    .foregroundStyle(RBColor.textSecondary)
-
-                Spacer(minLength: 0)
-            }
-
             HStack(spacing: 12) {
-                summaryMetricCard(title: appLanguage.localized("시간"), value: record.formattedDuration)
-                summaryMetricCard(title: appLanguage.localized("평균 페이스"), value: record.formattedPace)
+                mapHeaderButton(systemName: onDone == nil ? "chevron.left" : "xmark") {
+                    if let onDone {
+                        onDone()
+                    } else {
+                        dismiss()
+                    }
+                }
+
+                Spacer()
+
+                mapHeaderButton(systemName: "map") {
+                    fitMapToRoute()
+                }
+
+                mapHeaderButton(systemName: "square.and.arrow.up") {
+                    showShareCard = true
+                }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
         }
-        .padding(18)
-        .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, 16)
     }
 
-    private func summaryMetricCard(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
+    private func mapHeaderButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(Color.black.opacity(0.62))
+                .clipShape(RoundedRectangle(cornerRadius: RBRadius.button, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: RBRadius.button, style: .continuous)
+                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 상세 수치
+
+    private var primaryStatsSection: some View {
+        LazyVGrid(columns: detailColumns, spacing: 12) {
+            ForEach(detailMetricCards) { metric in
+                statItem(metric)
+            }
+        }
+    }
+
+    private func statItem(_ metric: RunDetailMetricCardModel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(metric.title)
                 .font(RBFont.caption(10))
                 .foregroundStyle(RBColor.textTertiary)
-            Text(value)
-                .font(RBFont.metric(22))
-                .foregroundStyle(RBColor.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(RBColor.cardBgLight)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    // MARK: - 추가 상세 수치
-
-    private var detailStatsSection: some View {
-        LazyVGrid(columns: detailColumns, spacing: 12) {
-            statItem(label: appLanguage.localized("평균 심박수"), value: record.formattedAverageHeartRate)
-            statItem(label: appLanguage.localized("칼로리 (추정)"), value: String(format: "%.0f kcal", estimatedCalories))
-            statItem(label: appLanguage.localized("평균 속도"), value: String(format: "%.1f km/h", avgSpeedKmh))
-            statItem(label: appLanguage.localized("최고 속도"), value: String(format: "%.1f km/h", maxSpeedKmh))
-            statItem(label: appLanguage.localized("평균 케이던스"), value: record.formattedCadence)
-            statItem(label: appLanguage.localized("총 고도 상승"), value: String(format: "%.0f m", elevationGain))
-            statItem(label: appLanguage.localized("경로 포인트"), value: appLanguage.text("\(record.routePoints.count)개", "\(record.routePoints.count) pts"))
-        }
-    }
-
-    private func statItem(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(RBFont.caption(9))
-                .foregroundStyle(RBColor.textTertiary)
                 .tracking(0.8)
-            Text(value)
-                .font(RBFont.metric(18))
-                .foregroundStyle(RBColor.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
+            RBMetricLine(
+                value: metric.value,
+                unit: metric.unit,
+                valueFont: RBFont.metric(metric.isPrimary ? 30 : 20),
+                unitFont: RBFont.unit(metric.isPrimary ? 13 : 11),
+                valueColor: metric.isMuted ? RBColor.textSecondary : RBColor.textPrimary,
+                unitColor: metric.isMuted ? RBColor.textTertiary : RBColor.textSecondary,
+                spacing: 3,
+                alignment: .leading
+            )
+
+            if let subtitle = metric.subtitle {
+                Text(subtitle)
+                    .font(RBFont.caption(11))
+                    .foregroundStyle(metric.isMuted ? RBColor.textTertiary : RBColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
+                .stroke(RBColor.divider.opacity(0.72), lineWidth: 1)
+        )
     }
 
     private var sensorAccuracySection: some View {
@@ -303,7 +274,7 @@ struct RunDetailView: View {
 
                         Text(sensorQualityTitle)
                             .font(RBFont.label(15))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(RBColor.textPrimary)
                     }
 
                     Spacer()
@@ -321,10 +292,34 @@ struct RunDetailView: View {
                     .foregroundStyle(RBColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 10) {
+                LazyVGrid(columns: detailColumns, spacing: 10) {
+                    sensorPill(
+                        title: appLanguage.text("GPS 품질", "GPS Quality"),
+                        value: RunDetailMetricBuilder.gpsQualityLabel(metricAnalysis.dataQuality.gpsQuality, appLanguage: appLanguage)
+                    )
                     sensorPill(
                         title: appLanguage.localized("GPS 평균 오차"),
                         value: averageGPSAccuracyMeters.map { String(format: "±%.0f m", $0) } ?? appLanguage.localized("데이터 적음")
+                    )
+                    sensorPill(
+                        title: appLanguage.text("심박 소스", "Heart Source"),
+                        value: RunDetailMetricBuilder.sourceLabel(metricAnalysis.dataQuality.heartRateSource, appLanguage: appLanguage)
+                    )
+                    sensorPill(
+                        title: appLanguage.text("케이던스 소스", "Cadence Source"),
+                        value: RunDetailMetricBuilder.sourceLabel(metricAnalysis.dataQuality.cadenceSource, appLanguage: appLanguage)
+                    )
+                    sensorPill(
+                        title: appLanguage.text("고도 상태", "Elevation"),
+                        value: metricAnalysis.dataQuality.hasReliableElevation
+                            ? RunDetailMetricBuilder.sourceLabel(metricAnalysis.dataQuality.elevationSource, appLanguage: appLanguage)
+                            : appLanguage.text("정보 없음", "Unavailable")
+                    )
+                    sensorPill(
+                        title: appLanguage.text("최고 속도", "Top Speed"),
+                        value: metricAnalysis.dataQuality.hasReliableSpeed
+                            ? appLanguage.text("필터 적용", "Filtered")
+                            : appLanguage.text("숨김", "Hidden")
                     )
                     sensorPill(title: appLanguage.localized("경로 포인트"), value: appLanguage.text("\(record.routePoints.count)개", "\(record.routePoints.count) pts"))
                 }
@@ -332,7 +327,7 @@ struct RunDetailView: View {
         }
         .padding(16)
         .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
     }
 
     private func sensorPill(title: String, value: String) -> some View {
@@ -343,13 +338,13 @@ struct RunDetailView: View {
                 .tracking(0.8)
             Text(value)
                 .font(RBFont.metric(14))
-                .foregroundStyle(.white)
+                .foregroundStyle(RBColor.textPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
         .background(RBColor.cardBgLight)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.chip, style: .continuous))
     }
 
     // MARK: - 구간별 페이스 (스플릿)
@@ -411,7 +406,7 @@ struct RunDetailView: View {
 
                     Text(RunRecord.formatPace(split.pace))
                         .font(RBFont.metric(14))
-                        .foregroundStyle(split.pace == bestPace ? RBColor.success : .white)
+                        .foregroundStyle(split.pace == bestPace ? RBColor.success : RBColor.textPrimary)
                         .frame(width: 52, alignment: .trailing)
                 }
             }
@@ -472,30 +467,12 @@ struct RunDetailView: View {
 
     // MARK: - Computed
 
-    private var avgSpeedKmh: Double {
-        guard record.elapsedSeconds > 0 else { return 0 }
-        return (record.totalDistanceMeters / 1000.0) / (record.elapsedSeconds / 3600.0)
+    private var metricAnalysis: RunMetricAnalysis {
+        record.analyzedMetrics
     }
 
-    private var maxSpeedKmh: Double {
-        let maxSpeed = record.routePoints.map(\.speed).max() ?? 0
-        return maxSpeed * 3.6
-    }
-
-    private var elevationGain: Double {
-        guard record.routePoints.count >= 2 else { return 0 }
-        var gain: Double = 0
-        for i in 1..<record.routePoints.count {
-            let diff = record.routePoints[i].altitude - record.routePoints[i-1].altitude
-            if diff > 0 { gain += diff }
-        }
-        return gain
-    }
-
-    private var estimatedCalories: Double {
-        // MET 기반 간단 추정: 러닝 MET ~10, 체중 70kg 가정
-        let hours = record.elapsedSeconds / 3600.0
-        return 10.0 * 70.0 * hours
+    private var detailMetricCards: [RunDetailMetricCardModel] {
+        RunDetailMetricBuilder.cards(for: record, appLanguage: appLanguage)
     }
 
     private func fitMapToRoute() {
@@ -545,51 +522,52 @@ struct RunDetailView: View {
     }
 
     private var averageGPSAccuracyMeters: Double? {
-        record.averageGPSAccuracyMeters
+        metricAnalysis.averageGPSAccuracyMeters
     }
 
     private var sensorQualityTitle: String {
-        guard let accuracy = averageGPSAccuracyMeters else {
-            return appLanguage.localized("센서 보정 중")
-        }
-
-        switch accuracy {
-        case ...10:
-            return appLanguage.localized("매우 안정적인 GPS")
-        case ...25:
-            return appLanguage.localized("안정적인 GPS")
-        case ...50:
-            return appLanguage.localized("보통 수준의 GPS")
-        default:
-            return appLanguage.localized("GPS 흔들림이 있었어요")
+        switch metricAnalysis.dataQuality.gpsQuality {
+        case .good:
+            return appLanguage.text("GPS 품질 양호", "GPS quality good")
+        case .fair:
+            return appLanguage.text("GPS 품질 보통", "GPS quality fair")
+        case .poor:
+            return appLanguage.text("GPS 정확도 낮음", "GPS accuracy low")
         }
     }
 
     private var sensorQualityDescription: String {
-        guard let accuracy = averageGPSAccuracyMeters else {
-            return appLanguage.localized("거리와 페이스는 GPS와 걸음 데이터를 함께 사용해 계산하고 있습니다. 경로 포인트가 더 쌓이면 정확도 판단이 더 선명해집니다.")
-        }
+        let accuracyText = averageGPSAccuracyMeters.map { String(format: "±%.0f m", $0) }
+            ?? appLanguage.text("데이터 적음", "Limited data")
+        let heartSource = RunDetailMetricBuilder.sourceDetail(for: metricAnalysis.dataQuality.heartRateSource, appLanguage: appLanguage)
+        let cadenceSource = RunDetailMetricBuilder.sourceDetail(for: metricAnalysis.dataQuality.cadenceSource, appLanguage: appLanguage)
 
-        if appLanguage.isEnglish {
-            return String(format: "Distance and pace combine GPS route data with step data. Cadence is calculated from steps, and the average GPS error for this run was about ±%.0f m.", accuracy)
+        switch metricAnalysis.dataQuality.gpsQuality {
+        case .good:
+            return appLanguage.text(
+                "거리와 평균 속도는 수평 정확도 20m 이하 GPS 샘플만 반영했습니다. 최고 속도는 3초 이상 유지된 속도만 인정하고, 고도 상승은 수직 정확도 15m 이하 GPS를 보정해 누적했습니다. 평균 GPS 오차는 \(accuracyText), 심박 소스는 \(heartSource), 케이던스 소스는 \(cadenceSource)입니다.",
+                "Distance and average speed only use GPS samples with horizontal accuracy of 20 m or better. Top speed requires sustained 3-second speed, and elevation gain only uses GPS altitude with vertical accuracy of 15 m or better after correction. Average GPS error was \(accuracyText), heart rate source was \(heartSource), and cadence source was \(cadenceSource)."
+            )
+        case .fair:
+            return appLanguage.text(
+                "GPS 정확도가 완전히 안정적이지 않아 최고 속도와 고도는 보수적으로 필터링했습니다. 수평 정확도 20m 초과 샘플과 비정상 속도는 제외했고, 평균 GPS 오차는 \(accuracyText)입니다.",
+                "GPS quality was only fair, so top speed and elevation were filtered conservatively. Samples with horizontal accuracy above 20 m and abnormal speed spikes were excluded, and average GPS error was \(accuracyText)."
+            )
+        case .poor:
+            return appLanguage.text(
+                "GPS 품질이 낮아 최고 속도와 총 고도 상승은 숨겼습니다. 거리와 페이스는 남은 유효 GPS 샘플만 사용했고, 평균 GPS 오차는 \(accuracyText)입니다.",
+                "GPS quality was poor, so top speed and elevation gain were hidden. Distance and pace only use the remaining valid GPS samples, and average GPS error was \(accuracyText)."
+            )
         }
-
-        return String(format: "거리와 페이스는 GPS 경로와 걸음 데이터를 함께 반영했고, 케이던스는 걸음 수 기반으로 계산했습니다. 이번 러닝의 평균 GPS 오차는 약 ±%.0fm입니다.", accuracy)
     }
 
     private var sensorQualityColor: Color {
-        guard let accuracy = averageGPSAccuracyMeters else {
-            return RBColor.accent
-        }
-
-        switch accuracy {
-        case ...10:
+        switch metricAnalysis.dataQuality.gpsQuality {
+        case .good:
             return RBColor.success
-        case ...25:
-            return RBColor.accent
-        case ...50:
+        case .fair:
             return Color.orange
-        default:
+        case .poor:
             return RBColor.danger
         }
     }

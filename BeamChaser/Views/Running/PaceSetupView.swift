@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PaceSetupView: View {
     @EnvironmentObject var runSession: RunSessionManager
+    @EnvironmentObject private var appNavigation: AppNavigationModel
     @State private var paceMinutes: Int = 5
     @State private var paceSeconds: Int = 30
     @State private var navigateToRun = false
@@ -15,7 +16,7 @@ struct PaceSetupView: View {
     @State private var targetTimeMinutes: Int = 30
 
     // 어떤 카드가 열려있는지 (아코디언)
-    @State private var expandedCard: GoalCard?
+    @State private var expandedCard: GoalCard? = .pace
 
     enum GoalCard { case distance, time, pace }
 
@@ -88,7 +89,7 @@ struct PaceSetupView: View {
 
                     Spacer(minLength: 20)
                 }
-                .padding(.bottom, 28)
+                .padding(.bottom, RBLayout.scrollBottomInset)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -101,40 +102,26 @@ struct PaceSetupView: View {
                 .frame(height: 28)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    if !startSummaryItems.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(startSummaryItems, id: \.self) { item in
-                                    Text(item)
-                                        .font(RBFont.caption(11))
-                                        .foregroundStyle(RBColor.textSecondary)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 8)
-                                        .background(RBColor.cardBgLight)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                        }
-                    }
-
                     RBPrimaryButton(appLanguage.localized("러닝 시작"), icon: "figure.run") {
                         startRun()
                     }
                     .opacity(canStartRun ? 1 : 0.5)
                     .disabled(!canStartRun)
                 }
-                .navigationDestination(isPresented: $navigateToRun) {
-                    RunActiveView()
-                }
                 .padding(.horizontal, 20)
                 .padding(.top, 6)
-                .padding(.bottom, RBLayout.tabBarClearance)
+                .padding(.bottom, 18)
                 .background(RBColor.bg)
             }
         }
+        .navigationDestination(isPresented: $navigateToRun) {
+            RunActiveView()
+        }
+        .onChange(of: appNavigation.homeNavigationResetToken) { _, _ in
+            navigateToRun = false
+        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarColorScheme(.dark, for: .navigationBar)
     }
 
     // MARK: - 일반 설정 — 펼쳐진 설정 패널만 (토글 박스 아래)
@@ -143,169 +130,176 @@ struct PaceSetupView: View {
         EmptyView()  // 설정 패널은 expandedCardContent에서 표시
     }
 
-    // MARK: - 목표 토글 박스 3개 (정사각형, 1/3 화면 너비)
+    // MARK: - 목표 토글 박스 3개
 
     private var goalToggleBoxes: some View {
         GeometryReader { geo in
-            let boxSize = (geo.size.width - 16) / 3  // 3등분, 간격 고려
-            VStack(spacing: 6) {
-                HStack(spacing: 8) {
-                    goalBox(
-                        icon: "flag.checkered",
-                        label: appLanguage.localized("거리"),
-                        value: distanceGoalEnabled ? String(format: "%.1f", targetDistanceKm) : "-",
-                        unit: "km",
-                        isOn: distanceGoalEnabled,
-                        card: .distance,
-                        size: boxSize
-                    )
-                    goalBox(
-                        icon: "clock",
-                        label: appLanguage.localized("시간"),
-                        value: timeGoalEnabled ? "\(targetTimeMinutes)" : "-",
-                        unit: appLanguage.text("분", "min"),
-                        isOn: timeGoalEnabled,
-                        card: .time,
-                        size: boxSize
-                    )
-                    goalBox(
-                        icon: "speedometer",
-                        label: appLanguage.localized("페이스"),
-                        value: paceGoalEnabled ? "\(paceMinutes)'\(String(format: "%02d", paceSeconds))\"" : "-",
-                        unit: "/km",
-                        isOn: paceGoalEnabled,
-                        card: .pace,
-                        size: boxSize
-                    )
-                }
-                // OFF 버튼 행
-                HStack(spacing: 8) {
-                    goalStateButton(card: .distance, isOn: distanceGoalEnabled, width: boxSize)
-                    goalStateButton(card: .time, isOn: timeGoalEnabled, width: boxSize)
-                    goalStateButton(card: .pace, isOn: paceGoalEnabled, width: boxSize)
-                }
+            let spacing: CGFloat = geo.size.width < 360 ? 8 : 10
+            let boxHeight: CGFloat = geo.size.width < 360 ? 140 : 150
+            let boxWidth = (geo.size.width - spacing * 2) / 3
+
+            HStack(spacing: spacing) {
+                goalBox(
+                    icon: "flag.checkered",
+                    label: appLanguage.localized("거리"),
+                    value: distanceGoalEnabled ? String(format: "%.1f", targetDistanceKm) : "-",
+                    unit: "km",
+                    isOn: distanceGoalEnabled,
+                    card: .distance,
+                    size: boxWidth,
+                    height: boxHeight
+                )
+                goalBox(
+                    icon: "clock",
+                    label: appLanguage.localized("시간"),
+                    value: timeGoalEnabled ? "\(targetTimeMinutes)" : "-",
+                    unit: appLanguage.text("분", "min"),
+                    isOn: timeGoalEnabled,
+                    card: .time,
+                    size: boxWidth,
+                    height: boxHeight
+                )
+                goalBox(
+                    icon: "speedometer",
+                    label: appLanguage.localized("페이스"),
+                    value: paceGoalEnabled ? "\(paceMinutes)'\(String(format: "%02d", paceSeconds))\"" : "-",
+                    unit: "/km",
+                    isOn: paceGoalEnabled,
+                    card: .pace,
+                    size: boxWidth,
+                    height: boxHeight
+                )
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(height: (UIScreen.main.bounds.width - 56) / 3 + 42)  // 정사각형 + 상태 버튼 높이
+        .frame(height: 154)
         .animation(.spring(response: 0.3), value: expandedCard)
     }
 
-    private func goalStateButton(card: GoalCard, isOn: Bool, width: CGFloat) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.3)) {
-                toggleGoal(card)
-            }
-        } label: {
-            Text(isOn ? "ON" : "OFF")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(isOn ? .white : RBColor.textSecondary)
-                .frame(width: width, height: 34)
-                .background(isOn ? AnyShapeStyle(RBColor.accentGradient) : AnyShapeStyle(RBColor.cardBgLight))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(isOn ? Color.white.opacity(0.08) : RBColor.divider.opacity(0.8), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-    }
+    private func goalBox(icon: String, label: String, value: String, unit: String, isOn: Bool, card: GoalCard, size: CGFloat, height: CGFloat) -> some View {
+        let isExpanded = expandedCard == card
 
-    private func goalBox(icon: String, label: String, value: String, unit: String, isOn: Bool, card: GoalCard, size: CGFloat) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.3)) {
-                switch card {
-                case .distance:
-                    if distanceGoalEnabled {
-                        if expandedCard == card {
-                            expandedCard = nil
-                        } else {
-                            expandedCard = card
+        return VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.3)) {
+                    selectGoalCard(card)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(isOn ? RBColor.accent.opacity(0.18) : RBColor.overlay)
+                                .frame(width: 26, height: 26)
+                            Image(systemName: icon)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(isOn ? RBColor.accent : RBColor.textSecondary)
                         }
-                    } else {
-                        distanceGoalEnabled = true
-                        expandedCard = card
+
+                        Text(label)
+                            .font(RBFont.caption(10))
+                            .foregroundStyle(isOn ? RBColor.textPrimary : RBColor.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .allowsTightening(true)
+
+                        Spacer()
+
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(isExpanded ? RBColor.accent : RBColor.textTertiary)
                     }
-                case .time:
-                    if timeGoalEnabled {
-                        if expandedCard == card {
-                            expandedCard = nil
-                        } else {
-                            expandedCard = card
-                        }
-                    } else {
-                        timeGoalEnabled = true
+
+                    RBMetricLine(
+                        value: value,
+                        unit: isOn ? unit : "",
+                        valueFont: RBFont.metric(19),
+                        unitFont: RBFont.unit(9),
+                        valueColor: isOn ? RBColor.textPrimary : RBColor.textSecondary,
+                        unitColor: isOn ? RBColor.textSecondary : RBColor.textTertiary,
+                        spacing: 2,
+                        alignment: .leading
+                    )
+
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .buttonStyle(.plain)
+
+            RBBarToggle(title: nil, isOn: goalToggleBinding(for: card), height: 30) { isEnabled in
+                withAnimation(.spring(response: 0.3)) {
+                    if isEnabled {
                         expandedCard = card
-                    }
-                case .pace:
-                    if paceGoalEnabled {
-                        if expandedCard == card {
-                            expandedCard = nil
-                        } else {
-                            expandedCard = card
-                        }
-                    } else {
-                        paceGoalEnabled = true
-                        expandedCard = card
+                    } else if expandedCard == card {
+                        expandedCard = nil
                     }
                 }
             }
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 18))
-                    .foregroundStyle(isOn ? RBColor.accent : RBColor.textTertiary)
-
-                Text(value)
-                    .font(RBFont.metric(20))
-                    .foregroundStyle(isOn ? RBColor.textPrimary : RBColor.textTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                Text(unit)
-                    .font(RBFont.caption(11))
-                    .foregroundStyle(isOn ? RBColor.textSecondary : RBColor.textTertiary)
-
-                Text(label)
-                    .font(RBFont.caption(10))
-                    .foregroundStyle(isOn ? RBColor.accent : RBColor.textTertiary)
-            }
-            .frame(width: size, height: size)
-            .background(isOn ? RBColor.accent.opacity(0.1) : RBColor.cardBg)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(
-                        expandedCard == card ? RBColor.accent : (isOn ? RBColor.accent.opacity(0.4) : .clear),
-                        lineWidth: expandedCard == card ? 2 : 1
-                    )
-            )
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(10)
+        .frame(width: size, height: height, alignment: .topLeading)
+        .background(isOn ? RBColor.accentSurface : RBColor.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
+                .strokeBorder(
+                    isOn || isExpanded ? RBColor.accent : RBColor.divider,
+                    lineWidth: isExpanded ? 2 : 1
+                )
+        )
+        .shadow(color: isExpanded ? RBColor.primary.opacity(0.12) : RBShadow.card, radius: isExpanded ? 12 : 8, y: 5)
+    }
+
+    private func goalToggleBinding(for card: GoalCard) -> Binding<Bool> {
+        switch card {
+        case .distance:
+            return $distanceGoalEnabled
+        case .time:
+            return $timeGoalEnabled
+        case .pace:
+            return $paceGoalEnabled
+        }
+    }
+
+    private func selectGoalCard(_ card: GoalCard) {
+        switch card {
+        case .distance:
+            if distanceGoalEnabled {
+                expandedCard = expandedCard == card ? nil : card
+            } else {
+                distanceGoalEnabled = true
+                expandedCard = card
+            }
+        case .time:
+            if timeGoalEnabled {
+                expandedCard = expandedCard == card ? nil : card
+            } else {
+                timeGoalEnabled = true
+                expandedCard = card
+            }
+        case .pace:
+            if paceGoalEnabled {
+                expandedCard = expandedCard == card ? nil : card
+            } else {
+                paceGoalEnabled = true
+                expandedCard = card
+            }
+        }
     }
 
     private func toggleGoal(_ card: GoalCard) {
         switch card {
         case .distance:
             distanceGoalEnabled.toggle()
-            if distanceGoalEnabled {
-                expandedCard = .distance
-            } else if expandedCard == .distance {
-                expandedCard = nil
-            }
+            expandedCard = distanceGoalEnabled ? .distance : (expandedCard == .distance ? nil : expandedCard)
         case .time:
             timeGoalEnabled.toggle()
-            if timeGoalEnabled {
-                expandedCard = .time
-            } else if expandedCard == .time {
-                expandedCard = nil
-            }
+            expandedCard = timeGoalEnabled ? .time : (expandedCard == .time ? nil : expandedCard)
         case .pace:
             paceGoalEnabled.toggle()
-            if paceGoalEnabled {
-                expandedCard = .pace
-            } else if expandedCard == .pace {
-                expandedCard = nil
-            }
+            expandedCard = paceGoalEnabled ? .pace : (expandedCard == .pace ? nil : expandedCard)
         }
     }
 
@@ -324,18 +318,17 @@ struct PaceSetupView: View {
             }
         }
         .padding(16)
-        .background(RBColor.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(RBColor.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(RBColor.accent.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
+                .strokeBorder(RBColor.accent.opacity(0.3), lineWidth: 1)
         )
+        .shadow(color: RBShadow.card, radius: 12, y: 6)
     }
 
     private var distanceSettingsPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
-            panelCaption(appLanguage.text("거리 목표", "Distance Goal"))
-
             goalMetricStepper(
                 valueText: String(format: "%.1f", targetDistanceKm),
                 unitText: "km",
@@ -343,7 +336,7 @@ struct PaceSetupView: View {
                 onPlus: { targetDistanceKm = min(42.2, targetDistanceKm + 0.5) }
             )
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 8)], spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(distancePresets, id: \.self) { dist in
                     let isSelected = abs(targetDistanceKm - dist) < 0.001
                     Button {
@@ -351,17 +344,11 @@ struct PaceSetupView: View {
                             targetDistanceKm = dist
                         }
                     } label: {
-                        Text(dist == 21.1 ? appLanguage.text("하프", "Half") : "\(Int(dist))km")
-                            .font(RBFont.label(12))
-                            .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(isSelected ? RBColor.accent.opacity(0.22) : RBColor.cardBgLight)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(isSelected ? RBColor.accent.opacity(0.65) : RBColor.divider.opacity(0.7), lineWidth: 1)
-                            )
+                        setupChipLabel(
+                            dist == 21.1 ? appLanguage.text("하프", "Half") : "\(Int(dist))km",
+                            isSelected: isSelected,
+                            minWidth: 0
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -373,8 +360,6 @@ struct PaceSetupView: View {
 
     private var timeSettingsPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
-            panelCaption(appLanguage.text("시간 목표", "Time Goal"))
-
             goalMetricStepper(
                 valueText: "\(targetTimeMinutes)",
                 unitText: appLanguage.text("분", "min"),
@@ -382,27 +367,23 @@ struct PaceSetupView: View {
                 onPlus: { targetTimeMinutes = min(180, targetTimeMinutes + 5) }
             )
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
-                ForEach([15, 20, 30, 45, 60], id: \.self) { mins in
-                    let isSelected = targetTimeMinutes == mins
-                    Button {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                            targetTimeMinutes = mins
-                        }
-                    } label: {
-                        Text(appLanguage.text("\(mins)분", "\(mins) min"))
-                            .font(RBFont.label(12))
-                            .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(isSelected ? RBColor.accent.opacity(0.22) : RBColor.cardBgLight)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(isSelected ? RBColor.accent.opacity(0.65) : RBColor.divider.opacity(0.7), lineWidth: 1)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach([15, 20, 30, 45, 60], id: \.self) { mins in
+                        let isSelected = targetTimeMinutes == mins
+                        Button {
+                            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                targetTimeMinutes = mins
+                            }
+                        } label: {
+                            setupChipLabel(
+                                appLanguage.text("\(mins)분", "\(mins) min"),
+                                isSelected: isSelected,
+                                minWidth: 78
                             )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
 
@@ -412,8 +393,6 @@ struct PaceSetupView: View {
 
     private var paceSettingsPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
-            panelCaption(appLanguage.text("페이스 목표", "Target Pace"))
-
             HStack(alignment: .lastTextBaseline, spacing: 0) {
                 Text(String(format: "%d", paceMinutes))
                     .font(RBFont.metric(52))
@@ -427,11 +406,11 @@ struct PaceSetupView: View {
                 Text("\"")
                     .font(RBFont.metric(28))
                     .foregroundStyle(RBColor.accent)
+                Text("/km")
+                    .font(RBFont.unit(15))
+                    .foregroundStyle(RBColor.textSecondary)
+                    .padding(.leading, 8)
             }
-
-            Text("/ km")
-                .font(RBFont.label(14))
-                .foregroundStyle(RBColor.textSecondary)
 
             HStack(spacing: 8) {
                 ForEach(presets, id: \.0) { preset in
@@ -445,9 +424,13 @@ struct PaceSetupView: View {
                         VStack(spacing: 3) {
                             Text(preset.0)
                                 .font(RBFont.label(11))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
                             Text("\(preset.1)'\(String(format: "%02d", preset.2))\"")
                                 .font(RBFont.caption(10))
                                 .foregroundStyle(RBColor.textSecondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
                         }
                         .foregroundStyle(
                             isSelected ? RBColor.textPrimary : RBColor.textSecondary
@@ -455,12 +438,12 @@ struct PaceSetupView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
                         .background(
-                            isSelected ? RBColor.accent.opacity(0.22) : RBColor.cardBgLight
+                            isSelected ? RBColor.accentSurface : RBColor.cardBg
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(isSelected ? RBColor.accent.opacity(0.65) : RBColor.divider.opacity(0.7), lineWidth: 1)
+                                .stroke(isSelected ? RBColor.accent : RBColor.divider.opacity(0.9), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
@@ -494,6 +477,7 @@ struct PaceSetupView: View {
                         Text("\(sec)")
                             .font(RBFont.label(13))
                             .foregroundStyle(paceSeconds == sec ? RBColor.textPrimary : RBColor.textSecondary)
+                            .lineLimit(1)
                             .frame(maxWidth: .infinity)
                             .frame(height: 38)
                             .background(paceSeconds == sec ? RBColor.accent.opacity(0.3) : RBColor.cardBgLight)
@@ -507,27 +491,60 @@ struct PaceSetupView: View {
         }
     }
 
+    private func setupChipLabel(_ title: String, isSelected: Bool, minWidth: CGFloat) -> some View {
+        Text(title)
+            .font(RBFont.label(12))
+            .foregroundStyle(isSelected ? RBColor.textPrimary : RBColor.textSecondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.76)
+            .allowsTightening(true)
+            .frame(minWidth: minWidth)
+            .padding(.horizontal, 12)
+            .frame(height: 40)
+                .background(isSelected ? RBColor.accentSurface : RBColor.cardBg)
+            .clipShape(RoundedRectangle(cornerRadius: RBRadius.chip, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: RBRadius.chip, style: .continuous)
+                    .strokeBorder(isSelected ? RBColor.accent : RBColor.divider.opacity(0.72), lineWidth: isSelected ? 0.9 : 0.7)
+            )
+    }
+
     private func goalResetButton(card: GoalCard) -> some View {
         Button {
             withAnimation(.spring(response: 0.3)) {
-                switch card {
-                case .distance: distanceGoalEnabled = false
-                case .time: timeGoalEnabled = false
-                case .pace: paceGoalEnabled = false
-                }
-                expandedCard = nil
+                toggleGoal(card)
             }
         } label: {
-            Text(appLanguage.text("미설정", "Unset"))
-                .font(RBFont.label(13))
-                .foregroundStyle(RBColor.textTertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(RBColor.cardBgLight)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            RBBarToggleLabel(
+                title: goalToggleTitle(card),
+                isOn: goalIsEnabled(card),
+                height: 38
+            )
         }
         .buttonStyle(.plain)
         .padding(.top, 4)
+    }
+
+    private func goalIsEnabled(_ card: GoalCard) -> Bool {
+        switch card {
+        case .distance:
+            return distanceGoalEnabled
+        case .time:
+            return timeGoalEnabled
+        case .pace:
+            return paceGoalEnabled
+        }
+    }
+
+    private func goalToggleTitle(_ card: GoalCard) -> String {
+        switch card {
+        case .distance:
+            return appLanguage.text("거리 목표", "Distance Goal")
+        case .time:
+            return appLanguage.text("시간 목표", "Time Goal")
+        case .pace:
+            return appLanguage.text("페이스 목표", "Pace Goal")
+        }
     }
 
     // MARK: - 인터벌 설정
@@ -649,7 +666,7 @@ struct PaceSetupView: View {
             } label: {
                 Text(appLanguage.text("이 인터벌로 설정", "Use This Interval"))
                     .font(RBFont.label(15))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(RBColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(RBColor.accent)
@@ -912,13 +929,6 @@ struct PaceSetupView: View {
 
     // MARK: - 페이스 조절기
 
-    private func panelCaption(_ text: String) -> some View {
-        Text(text)
-            .font(RBFont.caption(11))
-            .foregroundStyle(RBColor.textTertiary)
-            .tracking(1)
-    }
-
     private func goalMetricStepper(
         valueText: String,
         unitText: String,
@@ -932,9 +942,12 @@ struct PaceSetupView: View {
                 Text(valueText)
                     .font(RBFont.metric(34))
                     .foregroundStyle(RBColor.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
                 Text(unitText)
                     .font(RBFont.label(14))
                     .foregroundStyle(RBColor.textSecondary)
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
 
@@ -942,11 +955,11 @@ struct PaceSetupView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
-        .background(RBColor.cardBgLight)
+        .background(RBColor.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(RBColor.divider.opacity(0.7), lineWidth: 1)
+                .strokeBorder(RBColor.divider.opacity(0.9), lineWidth: 1)
         )
     }
 
@@ -976,11 +989,11 @@ struct PaceSetupView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity)
-        .background(RBColor.cardBgLight)
+        .background(RBColor.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(RBColor.divider.opacity(0.7), lineWidth: 1)
+                .strokeBorder(RBColor.divider.opacity(0.9), lineWidth: 1)
         )
     }
 
@@ -998,7 +1011,7 @@ struct PaceSetupView: View {
                 .clipShape(Circle())
                 .overlay(
                     Circle()
-                        .stroke(RBColor.divider.opacity(0.65), lineWidth: 1)
+                    .strokeBorder(RBColor.divider.opacity(0.65), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)

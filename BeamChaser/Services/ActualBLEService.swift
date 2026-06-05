@@ -14,6 +14,12 @@ final class ActualBLEService: BLEService {
     private var discoveredCharacteristics: [CBCharacteristic] = []
     private var pendingCharacteristicServiceIDs = Set<String>()
     private var scanSessionID = UUID()
+    private var lastTransmittedLaserState: Bool?
+    private var lastTransmittedZone: DeviceZone?
+    private var lastTransmittedServoAngle: Int?
+    private var reconnectPeripheral: CBPeripheral?
+    private var reconnectWorkItem: DispatchWorkItem?
+    private var manualDisconnectRequested = false
 
     private nonisolated(unsafe) let serviceUUID = CBUUID(string: BLEConstants.serviceUUID)
     private nonisolated(unsafe) let charUUID = CBUUID(string: BLEConstants.characteristicUUID)
@@ -35,6 +41,7 @@ final class ActualBLEService: BLEService {
         scanSessionID = UUID()
         discoveredDevices.removeAll()
         discoveredDeviceMetadata.removeAll()
+        isScanningAllDevices = services == nil
         connectionError = nil
         scanHint = nil
         isScanning = true
@@ -47,25 +54,13 @@ final class ActualBLEService: BLEService {
         let currentScanSessionID = scanSessionID
         DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
             guard self?.scanSessionID == currentScanSessionID else { return }
+            if self?.discoveredDevices.isEmpty == true {
+                self?.scanHint = AppLanguage.current.text(
+                    "주변에서 BeamChaser 장치를 찾지 못했습니다. 전원을 확인하고 다시 검색해주세요.",
+                    "No BeamChaser device found nearby. Check power and scan again."
+                )
+            }
             self?.stopScanning()
-        }
-    }
-
-    private func scheduleUnfilteredFallback() {
-        let currentScanSessionID = scanSessionID
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self else { return }
-            guard scanSessionID == currentScanSessionID, isScanning, discoveredDevices.isEmpty else { return }
-
-            centralManager.stopScan()
-            scanHint = AppLanguage.current.text(
-                "FFE0 서비스 광고가 감지되지 않아 모든 BLE 장치 검색으로 전환했습니다.",
-                "No FFE0 service advertisement was found, so scanning all BLE devices."
-            )
-            centralManager.scanForPeripherals(
-                withServices: nil,
-                options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
-            )
         }
     }
 
@@ -77,7 +72,6 @@ final class ActualBLEService: BLEService {
             return
         }
         beginScanning(withServices: [serviceUUID])
-        scheduleUnfilteredFallback()
     }
 
     override func startScanningAll() {
@@ -95,18 +89,26 @@ final class ActualBLEService: BLEService {
 
     override func connect(to peripheral: CBPeripheral) {
         stopScanning()
+        reconnectWorkItem?.cancel()
+        manualDisconnectRequested = false
+        reconnectPeripheral = peripheral
         connectedPeripheral = peripheral
         peripheral.delegate = self
         discoveredCharacteristics.removeAll()
         pendingCharacteristicServiceIDs.removeAll()
+        resetTransmittedCommandState()
         mainCharacteristic = nil
         activeCharacteristicUUID = nil
+        isScanningAllDevices = false
         connectionError = nil
         scanHint = nil
         centralManager.connect(peripheral, options: nil)
     }
 
     override func disconnect() {
+        manualDisconnectRequested = true
+        reconnectWorkItem?.cancel()
+        reconnectPeripheral = nil
         guard let peripheral = connectedPeripheral else { return }
         centralManager.cancelPeripheralConnection(peripheral)
     }
@@ -114,26 +116,24 @@ final class ActualBLEService: BLEService {
     // MARK: - 장치 제어 (명령 전송)
 
     override func sendCommand(_ command: LaserCommand) {
-        guard let characteristic = mainCharacteristic,
-              let peripheral = connectedPeripheral else {
-            connectionError = AppLanguage.current.text(
-                "쓰기 가능한 BLE 특성을 아직 찾지 못했습니다. nRF Connect에서 characteristic UUID를 확인해주세요.",
-                "No writable BLE characteristic is ready yet. Check the characteristic UUID in nRF Connect."
-            )
-            return
+        if let textCommand = textCommand(for: command) {
+            sendTextCommand(textCommand)
+        } else {
+            sendDataCommand(command)
         }
-        connectionError = nil
-        let writeType: CBCharacteristicWriteType =
-            characteristic.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
-        lastSentCommandHex = command.data.hexString
-        peripheral.writeValue(command.data, for: characteristic, type: writeType)
     }
 
     override func turnLaserOn() {
+        guard lastTransmittedLaserState != true else { return }
+        lastTransmittedLaserState = true
         sendCommand(.laserOn())
     }
 
     override func turnLaserOff() {
+        guard lastTransmittedLaserState != false else { return }
+        lastTransmittedLaserState = false
+        lastTransmittedZone = nil
+        deviceZone = .none
         sendCommand(.laserOff())
     }
 
@@ -142,12 +142,24 @@ final class ActualBLEService: BLEService {
     }
 
     override func setServoAngle(_ degrees: Int) {
-        servoAngle = degrees
-        sendCommand(.setAngle(degrees: degrees))
+        let clampedDegrees = min(max(degrees, 60), 110)
+        servoAngle = clampedDegrees
+
+        guard lastTransmittedServoAngle != clampedDegrees else { return }
+        lastTransmittedServoAngle = clampedDegrees
+        sendCommand(.setAngle(degrees: clampedDegrees))
     }
 
     override func setZone(_ zone: DeviceZone) {
         deviceZone = zone
+
+        guard zone != .none else {
+            lastTransmittedZone = nil
+            return
+        }
+
+        guard lastTransmittedZone != zone else { return }
+        lastTransmittedZone = zone
         sendCommand(.setZone(zone))
     }
 
@@ -190,6 +202,16 @@ final class ActualBLEService: BLEService {
         lastPhoneControlPayload = payload
         lastPhoneControlCommandHex = command.data.hexString
         sendCommand(command)
+
+        let laserEnabled = (payload.flags & (1 << 0)) != 0
+        guard laserEnabled else {
+            turnLaserOff()
+            return
+        }
+
+        turnLaserOn()
+        setServoAngle(Int(payload.servoAngleDegrees))
+        setZone(payload.zone)
     }
 }
 
@@ -202,11 +224,21 @@ extension ActualBLEService: CBCentralManagerDelegate {
             switch state {
             case .poweredOn:
                 connectionError = nil
+                reconnectIfNeeded()
             case .poweredOff:
+                reconnectWorkItem?.cancel()
                 connectionError = AppLanguage.current.text("블루투스를 켜주세요", "Turn on Bluetooth.")
+            case .resetting:
+                reconnectWorkItem?.cancel()
+                connectionError = AppLanguage.current.text(
+                    "블루투스가 재설정되는 중입니다. 잠시 후 자동으로 다시 연결합니다.",
+                    "Bluetooth is resetting. The app will try to reconnect shortly."
+                )
             case .unauthorized:
+                reconnectWorkItem?.cancel()
                 connectionError = AppLanguage.current.text("블루투스 권한을 허용해주세요", "Allow Bluetooth access.")
             case .unsupported:
+                reconnectWorkItem?.cancel()
                 connectionError = AppLanguage.current.text("이 기기는 BLE를 지원하지 않습니다", "This device does not support BLE.")
             default:
                 break
@@ -241,6 +273,9 @@ extension ActualBLEService: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         let name = peripheral.name
         Task { @MainActor in
+            reconnectWorkItem?.cancel()
+            reconnectPeripheral = peripheral
+            manualDisconnectRequested = false
             isConnected = true
             connectedDeviceName = name ?? "BeamChaser"
             connectionError = nil
@@ -255,17 +290,31 @@ extension ActualBLEService: CBCentralManagerDelegate {
         error: Error?
     ) {
         Task { @MainActor in
+            let shouldReconnect = !manualDisconnectRequested
             isConnected = false
             connectedDeviceName = nil
             connectedPeripheral = nil
+            resetTransmittedCommandState()
             mainCharacteristic = nil
             activeCharacteristicUUID = nil
             lastReceivedPacketHex = nil
             lastSentCommandHex = nil
+            lastPhoneGPSCommandHex = nil
+            lastPhoneControlCommandHex = nil
             discoveredCharacteristics.removeAll()
             pendingCharacteristicServiceIDs.removeAll()
             deviceStatus = nil
             deviceZone = .none
+            isScanningAllDevices = false
+
+            if shouldReconnect {
+                connectionError = AppLanguage.current.text(
+                    "장치 연결이 끊어졌습니다. 자동으로 다시 연결합니다.",
+                    "The device disconnected. Reconnecting automatically."
+                )
+                reconnectPeripheral = peripheral
+                scheduleReconnect(to: peripheral)
+            }
         }
     }
 
@@ -277,6 +326,10 @@ extension ActualBLEService: CBCentralManagerDelegate {
         let msg = error?.localizedDescription ?? AppLanguage.current.text("알 수 없는 오류", "Unknown error")
         Task { @MainActor in
             connectionError = AppLanguage.current.text("연결 실패: \(msg)", "Connection failed: \(msg)")
+            if !manualDisconnectRequested {
+                reconnectPeripheral = peripheral
+                scheduleReconnect(to: peripheral, delay: 2.0)
+            }
         }
     }
 }
@@ -356,6 +409,32 @@ extension ActualBLEService: CBPeripheralDelegate {
 // MARK: - Characteristic Selection
 
 extension ActualBLEService {
+    private func reconnectIfNeeded() {
+        guard let peripheral = reconnectPeripheral,
+              !manualDisconnectRequested,
+              !isConnected,
+              centralManager.state == .poweredOn else { return }
+        scheduleReconnect(to: peripheral, delay: 0.3)
+    }
+
+    private func scheduleReconnect(to peripheral: CBPeripheral, delay: TimeInterval = 1.5) {
+        reconnectWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard !self.manualDisconnectRequested,
+                  !self.isConnected,
+                  self.centralManager.state == .poweredOn else { return }
+
+            self.connectedPeripheral = peripheral
+            peripheral.delegate = self
+            self.centralManager.connect(peripheral, options: nil)
+        }
+
+        reconnectWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
     private func configureDiscoveredCharacteristics(for peripheral: CBPeripheral) {
         guard mainCharacteristic == nil else { return }
 
@@ -388,30 +467,91 @@ extension ActualBLEService {
             peripheral.setNotifyValue(true, for: characteristic)
         }
 
-        if writeCharacteristic.uuid == charUUID {
-            scanHint = nil
-        } else if writeCharacteristic.uuid == nordicUARTWriteUUID {
-            scanHint = AppLanguage.current.text(
-                "Nordic UART characteristic으로 연결했습니다. ESP32-S3 펌웨어가 동일한 명령 바이트를 처리하는지 확인해주세요.",
-                "Connected through a Nordic UART characteristic. Make sure the ESP32-S3 firmware handles the same command bytes."
-            )
-        } else {
-            scanHint = AppLanguage.current.text(
-                "FFE1 characteristic을 찾지 못해 \(writeCharacteristic.uuid.uuidString) characteristic으로 테스트 연결했습니다. ESP32-S3 UUID를 앱과 맞춰주세요.",
-                "FFE1 was not found, so using \(writeCharacteristic.uuid.uuidString) for testing. Align the ESP32-S3 UUID with the app."
-            )
-        }
-
-        if notifyCandidates.isEmpty {
-            scanHint = AppLanguage.current.text(
-                "알림 가능한 BLE characteristic이 없어 상태 수신은 제한될 수 있습니다.",
-                "No notifiable BLE characteristic was found, so status reception may be limited."
-            )
-        }
+        scanHint = nil
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.requestStatus()
         }
+    }
+
+    private func sendTextCommand(_ command: String) {
+        guard let characteristic = mainCharacteristic,
+              let peripheral = connectedPeripheral,
+              let data = command.data(using: .utf8) else {
+            connectionError = AppLanguage.current.text(
+                "쓰기 가능한 BLE 특성을 아직 찾지 못했습니다. nRF Connect에서 characteristic UUID를 확인해주세요.",
+                "No writable BLE characteristic is ready yet. Check the characteristic UUID in nRF Connect."
+            )
+            return
+        }
+
+        connectionError = nil
+        lastSentCommandHex = command
+
+        let writeType: CBCharacteristicWriteType =
+            characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
+        peripheral.writeValue(data, for: characteristic, type: writeType)
+    }
+
+    private func sendDataCommand(_ command: LaserCommand) {
+        guard let characteristic = mainCharacteristic,
+              let peripheral = connectedPeripheral else {
+            connectionError = AppLanguage.current.text(
+                "쓰기 가능한 BLE 특성을 아직 찾지 못했습니다. nRF Connect에서 characteristic UUID를 확인해주세요.",
+                "No writable BLE characteristic is ready yet. Check the characteristic UUID in nRF Connect."
+            )
+            return
+        }
+
+        let data = command.data
+        connectionError = nil
+        lastSentCommandHex = data.hexString
+
+        let writeType: CBCharacteristicWriteType =
+            characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
+        peripheral.writeValue(data, for: characteristic, type: writeType)
+    }
+
+    private func textCommand(for command: LaserCommand) -> String? {
+        switch command.type {
+        case .laserOff:
+            return "OFF"
+        case .laserOn:
+            return "ON"
+        case .setAngle:
+            guard let degrees = command.payload.first else { return nil }
+            return "ANGLE:\(Int(degrees))"
+        case .setZone:
+            guard let rawValue = command.payload.first,
+                  let zone = DeviceZone(rawValue: rawValue) else {
+                return nil
+            }
+
+            switch zone {
+            case .blue:
+                return "COLOR:BLUE"
+            case .green:
+                return "COLOR:GREEN"
+            case .red:
+                return "COLOR:RED"
+            case .none:
+                return nil
+            }
+        case .startRun:
+            return "ON"
+        case .stopRun:
+            return "OFF"
+        case .requestStatus:
+            return "STATUS"
+        case .setPace, .setDayMode, .setSensitivity, .setCalibration, .phoneGPS, .phoneControl:
+            return nil
+        }
+    }
+
+    private func resetTransmittedCommandState() {
+        lastTransmittedLaserState = nil
+        lastTransmittedZone = nil
+        lastTransmittedServoAngle = nil
     }
 
     private func isWritableCharacteristic(_ characteristic: CBCharacteristic) -> Bool {

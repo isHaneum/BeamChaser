@@ -15,7 +15,13 @@ final class LocationService: NSObject, ObservableObject {
     @Published var currentLocation: CLLocation?
     @Published var currentSpeed: Double = 0           // m/s
     @Published var currentPaceSecondsPerKm: Double = 0
+    @Published var rawGpsPaceSecondsPerKm: Double = 0
+    @Published var smoothedDisplayPaceSecondsPerKm: Double = 0
+    @Published var controlPaceSecondsPerKm: Double = 0
+    @Published var lapPaceSecondsPerKm: Double = 0
+    @Published var isPaceReliable = false
     @Published var currentCadenceSpm: Double = 0
+    @Published var isCadenceEstimated = false
     @Published var totalDistanceMeters: Double = 0
     @Published var routePoints: [RoutePoint] = []
     @Published var isTracking = false
@@ -40,6 +46,15 @@ final class LocationService: NSObject, ObservableObject {
     // 페이스 평활화용 (최근 5개 속도 평균)
     private var recentSpeeds: [Double] = []
     private let smoothingWindow = 5
+    private struct SpeedSample {
+        let timestamp: Date
+        let speed: Double
+    }
+    private var speedSamples: [SpeedSample] = []
+    private var reliablePaceSampleCount = 0
+    private let displaySmoothingWindow: TimeInterval = 6
+    private let controlSmoothingWindow: TimeInterval = 10
+    private let minimumReliablePaceSamples = 3
 
     // MARK: - Private — CMPedometer (보수계 + 모션 코프로세서)
 
@@ -163,10 +178,18 @@ final class LocationService: NSObject, ObservableObject {
         totalDistanceMeters = 0
         routePoints.removeAll()
         recentSpeeds.removeAll()
+        speedSamples.removeAll()
+        reliablePaceSampleCount = 0
         previousLocation = nil
         currentSpeed = 0
         currentPaceSecondsPerKm = 0
+        rawGpsPaceSecondsPerKm = 0
+        smoothedDisplayPaceSecondsPerKm = 0
+        controlPaceSecondsPerKm = 0
+        lapPaceSecondsPerKm = 0
+        isPaceReliable = false
         currentCadenceSpm = 0
+        isCadenceEstimated = false
         pedometerDistance = 0
         pedometerSpeed = 0
         sessionStepCount = 0
@@ -179,7 +202,7 @@ final class LocationService: NSObject, ObservableObject {
     // MARK: - 유효 속도 범위 (페이스 1분/km ~ 20분/km)
     // 1분/km = 16.67 m/s, 20분/km = 0.833 m/s
     private static let minValidSpeedMs: Double = 0.834  // 20분/km 이하 → 걷기/정지로 간주
-    private static let maxValidSpeedMs: Double = 15.0   // 1분/km 미만 → 비현실적 GPS 오류
+    private static let maxValidSpeedMs: Double = 8.0    // 28.8km/h 초과는 GPS 튐으로 간주
 
     // MARK: - Private Helpers
 
@@ -189,18 +212,22 @@ final class LocationService: NSObject, ObservableObject {
         if !pedometerSpeed.isFinite { pedometerSpeed = 0 }
 
         // 정확도 필터 — 20m 초과 오차 무시
-        let gpsIsGood = location.horizontalAccuracy > 0 && location.horizontalAccuracy < 20
+        let gpsIsGood = location.horizontalAccuracy > 0 && location.horizontalAccuracy <= 20
 
         if gpsIsGood {
             let routePoint = RoutePoint(from: location)
             routePoints.append(routePoint)
             currentLocation = location
+            var derivedGpsSpeed = sanitizedNonNegativeSpeed(location.speed)
 
             // GPS 거리 계산
             if let prev = previousLocation {
                 let delta = location.distance(from: prev)
                 let timeDelta = location.timestamp.timeIntervalSince(prev.timestamp)
                 let instantSpeed = timeDelta > 0 ? delta / timeDelta : 0
+                if derivedGpsSpeed < 0.1 {
+                    derivedGpsSpeed = sanitizedNonNegativeSpeed(instantSpeed)
+                }
                 // 비정상 속도 구간 거리 제외 (페이스 1분~20분/km 범위 외)
                 if timeDelta > 0,
                    instantSpeed <= LocationService.maxValidSpeedMs,
@@ -217,32 +244,45 @@ final class LocationService: NSObject, ObservableObject {
             }
             previousLocation = location
 
-            // GPS 속도 (평활화)
-            let gpsSpeed = sanitizedNonNegativeSpeed(location.speed)
-            recentSpeeds.append(gpsSpeed)
-            if recentSpeeds.count > smoothingWindow { recentSpeeds.removeFirst() }
+            if derivedGpsSpeed >= LocationService.minValidSpeedMs,
+               derivedGpsSpeed <= LocationService.maxValidSpeedMs {
+                rawGpsPaceSecondsPerKm = 1000.0 / derivedGpsSpeed
+                reliablePaceSampleCount += 1
+            }
 
-            let avgGpsSpeed = averageFiniteSpeed(recentSpeeds)
+            addSpeedSample(derivedGpsSpeed, at: location.timestamp)
+            let displayGpsSpeed = rollingAverageSpeed(window: displaySmoothingWindow, now: location.timestamp)
+            let controlGpsSpeed = rollingAverageSpeed(window: controlSmoothingWindow, now: location.timestamp)
 
             // 센서 퓨전: GPS + 보수계 가중 평균
-            let fusedSpeed = sanitizedNonNegativeSpeed(
-                fuseSpeeds(gpsSpeed: avgGpsSpeed, gpsAccuracy: location.horizontalAccuracy)
+            let displaySpeed = sanitizedNonNegativeSpeed(
+                fuseSpeeds(gpsSpeed: displayGpsSpeed, gpsAccuracy: location.horizontalAccuracy)
             )
-            currentSpeed = fusedSpeed
+            let controlSpeed = sanitizedNonNegativeSpeed(
+                fuseSpeeds(gpsSpeed: controlGpsSpeed, gpsAccuracy: location.horizontalAccuracy)
+            )
+            currentSpeed = controlSpeed
 
             // 유효 페이스 범위(1분~20분/km)에서만 페이스 업데이트
-            if fusedSpeed >= LocationService.minValidSpeedMs && fusedSpeed <= LocationService.maxValidSpeedMs {
-                currentPaceSecondsPerKm = 1000.0 / fusedSpeed
-            } else if !currentPaceSecondsPerKm.isFinite {
-                currentPaceSecondsPerKm = 0
-            }
-            // fusedSpeed가 범위 밖이면 마지막 유효 페이스값 유지
+            smoothedDisplayPaceSecondsPerKm = paceSeconds(for: displaySpeed)
+            controlPaceSecondsPerKm = paceSeconds(for: controlSpeed)
+            lapPaceSecondsPerKm = calculatedLapPaceSecondsPerKm()
+            let hasMovementEvidence = currentCadenceSpm > 0 || pedometerSpeed > 0.3 || derivedGpsSpeed >= LocationService.minValidSpeedMs
+            isPaceReliable = reliablePaceSampleCount >= minimumReliablePaceSamples
+                && hasMovementEvidence
+                && smoothedDisplayPaceSecondsPerKm > 0
+                && controlPaceSecondsPerKm > 0
+            currentPaceSecondsPerKm = isPaceReliable ? smoothedDisplayPaceSecondsPerKm : 0
         } else {
             // GPS 불량 — 보수계 단독 모드 (터널, 실내 등)
             if pedometerSpeed >= LocationService.minValidSpeedMs && pedometerSpeed <= LocationService.maxValidSpeedMs {
                 paceSource = .pedometer
                 currentSpeed = pedometerSpeed
-                currentPaceSecondsPerKm = 1000.0 / pedometerSpeed
+                smoothedDisplayPaceSecondsPerKm = 1000.0 / pedometerSpeed
+                controlPaceSecondsPerKm = smoothedDisplayPaceSecondsPerKm
+                currentPaceSecondsPerKm = smoothedDisplayPaceSecondsPerKm
+                lapPaceSecondsPerKm = calculatedLapPaceSecondsPerKm()
+                isPaceReliable = true
 
                 // 보수계로 거리 보정 (GPS 못 받는 구간)
                 if let lastUpdate = lastPedometerUpdate {
@@ -251,6 +291,10 @@ final class LocationService: NSObject, ObservableObject {
                         totalDistanceMeters += pedometerSpeed * elapsed
                     }
                 }
+            } else {
+                currentSpeed = 0
+                currentPaceSecondsPerKm = 0
+                isPaceReliable = false
             }
         }
     }
@@ -353,11 +397,13 @@ final class LocationService: NSObject, ObservableObject {
 
                 if let currentCadence = data.currentCadence {
                     self.currentCadenceSpm = max(0, min(260, currentCadence.doubleValue * 60.0))
+                    self.isCadenceEstimated = false
                 } else {
                     let elapsed = data.endDate.timeIntervalSince(data.startDate)
                     self.currentCadenceSpm = elapsed > 0
                         ? max(0, min(260, data.numberOfSteps.doubleValue / elapsed * 60.0))
                         : 0
+                    self.isCadenceEstimated = self.currentCadenceSpm > 0
                 }
 
                 self.lastPedometerUpdate = Date()
@@ -378,6 +424,39 @@ final class LocationService: NSObject, ObservableObject {
         let finiteSpeeds = speeds.filter { $0.isFinite && $0 >= 0 }
         guard !finiteSpeeds.isEmpty else { return 0 }
         return finiteSpeeds.reduce(0, +) / Double(finiteSpeeds.count)
+    }
+
+    private func addSpeedSample(_ speed: Double, at timestamp: Date) {
+        guard speed.isFinite, speed >= 0 else { return }
+        speedSamples.append(SpeedSample(timestamp: timestamp, speed: speed))
+        let oldestAllowed = timestamp.addingTimeInterval(-controlSmoothingWindow)
+        speedSamples.removeAll { $0.timestamp < oldestAllowed }
+    }
+
+    private func rollingAverageSpeed(window: TimeInterval, now: Date) -> Double {
+        let oldestAllowed = now.addingTimeInterval(-window)
+        let samples = speedSamples
+            .filter { $0.timestamp >= oldestAllowed && $0.speed >= 0 && $0.speed.isFinite }
+            .map(\.speed)
+        return averageFiniteSpeed(samples)
+    }
+
+    private func paceSeconds(for speed: Double) -> Double {
+        guard speed >= LocationService.minValidSpeedMs,
+              speed <= LocationService.maxValidSpeedMs,
+              speed.isFinite else {
+            return 0
+        }
+        return 1000.0 / speed
+    }
+
+    private func calculatedLapPaceSecondsPerKm() -> Double {
+        guard routePoints.count >= 2, totalDistanceMeters > 1 else { return 0 }
+        guard let start = routePoints.first?.timestamp,
+              let end = routePoints.last?.timestamp else { return 0 }
+        let duration = end.timeIntervalSince(start)
+        guard duration > 0 else { return 0 }
+        return duration / (totalDistanceMeters / 1000.0)
     }
 
     // MARK: - 시뮬레이터 (가속도 방식)

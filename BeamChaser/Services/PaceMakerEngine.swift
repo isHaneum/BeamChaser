@@ -26,7 +26,7 @@ final class PaceMakerEngine: ObservableObject {
     // MARK: - Properties
 
     private(set) var target: PaceTarget?
-    private var lastUpdateTime: Date?
+    private var lastElapsedSeconds: TimeInterval?
 
     enum PaceStatus {
         case ahead, onPace, behind
@@ -70,12 +70,12 @@ final class PaceMakerEngine: ObservableObject {
         self.target = target
         self.effectivePaceSecondsPerKm = target.totalSecondsPerKm
         self.adaptiveState = .steady
-        self.lastUpdateTime = Date()
+        self.lastElapsedSeconds = 0
         reset()
     }
 
     func stop() {
-        lastUpdateTime = nil
+        lastElapsedSeconds = nil
     }
 
     func reset() {
@@ -88,14 +88,9 @@ final class PaceMakerEngine: ObservableObject {
     /// 매 위치 업데이트마다 호출 — 현재 실제 거리와 비교하여 갭 계산
     func update(actualDistanceMeters: Double, elapsedSeconds: TimeInterval) {
         guard let target = target, target.totalSecondsPerKm > 0 else { return }
-        let now = Date()
-        guard let lastTime = lastUpdateTime else {
-            lastUpdateTime = now
-            return
-        }
-        
-        let dt = now.timeIntervalSince(lastTime)
-        lastUpdateTime = now
+        let previousElapsedSeconds = lastElapsedSeconds ?? 0
+        let dt = max(0, elapsedSeconds - previousElapsedSeconds)
+        lastElapsedSeconds = elapsedSeconds
 
         // 1. 지능형 페이스 조절 (Adaptive Logic)
         if isAdaptiveMode {

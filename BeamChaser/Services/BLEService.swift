@@ -19,6 +19,7 @@ class BLEService: NSObject, ObservableObject {
     // MARK: - Published State
 
     @Published var isScanning = false
+    @Published var isScanningAllDevices = false
     @Published var isConnected = false
     @Published var discoveredDevices: [CBPeripheral] = []
     @Published var discoveredDeviceMetadata: [UUID: BLEDiscoveredDeviceMetadata] = [:]
