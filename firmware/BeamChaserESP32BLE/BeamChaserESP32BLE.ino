@@ -12,18 +12,20 @@
  * - ESP32 board package
  * - ESP32Servo
  *
- * Wiring defaults, change these to match the soldered board:
- * - MPU6050 SDA -> GPIO 21
- * - MPU6050 SCL -> GPIO 22
- * - Pitch servo signal -> GPIO 18
- * - Yaw servo signal   -> GPIO 19
- * - Green laser -> GPIO 25
- * - Red laser   -> GPIO 26
- * - Blue laser  -> GPIO 27
+ * Soldered wiring from the current prototype:
+ * - MPU6050 SDA -> GPIO 4
+ * - MPU6050 SCL -> GPIO 5
+ * - Pitch servo signal -> GPIO 9
+ * - Yaw servo signal   -> GPIO 10
+ * - Green laser -> GPIO 25  // update if soldered differently
+ * - Red laser   -> GPIO 26  // update if soldered differently
+ * - Blue laser  -> GPIO 27  // update if soldered differently
  *
  * Important
  * - Servo power must be separated from ESP32 3.3V.
  * - ESP32 GND, servo power GND, MPU6050 GND must be common.
+ * - GPIO 9/10 can be unsafe on some classic ESP32 boards. They are kept here
+ *   only because the prototype is already soldered to these pins.
  */
 
 #include <Arduino.h>
@@ -46,14 +48,13 @@ BLECharacteristic* beamCharacteristic = nullptr;
 bool bleConnected = false;
 
 // ================================================================
-// Pin map: adjust to the actual soldered board
-// Avoid ESP32 GPIO 6~11 because they are usually connected to flash.
+// Pin map: matches the already soldered prototype
 // ================================================================
-static const int IMU_SDA_PIN = 21;
-static const int IMU_SCL_PIN = 22;
+static const int IMU_SDA_PIN = 4;
+static const int IMU_SCL_PIN = 5;
 
-static const int PITCH_SERVO_PIN = 18;
-static const int YAW_SERVO_PIN = 19;
+static const int PITCH_SERVO_PIN = 9;
+static const int YAW_SERVO_PIN = 10;
 
 static const int LASER_GREEN_PIN = 25;
 static const int LASER_RED_PIN = 26;
